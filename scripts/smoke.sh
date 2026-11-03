@@ -54,6 +54,11 @@ sleep 1
 tap_text "Sign in"
 sleep 26
 adb exec-out screencap -p > smoke/02-following.png
+tap_text "More"
+sleep 1
+adb exec-out screencap -p > smoke/02b-menu.png
+adb shell input keyevent 4
+sleep 1
 adb shell input swipe 500 1500 500 700 400
 sleep 2
 long_press "Reactions" | tee smoke/held.txt
@@ -92,6 +97,11 @@ adb exec-out screencap -p > smoke/09-check.png
 adb shell input keyevent 4
 sleep 2
 adb exec-out screencap -p > smoke/09x-settings.png
+adb shell input swipe 500 1600 500 500 500
+sleep 2
+adb exec-out screencap -p > smoke/09x2-settings.png
+adb shell input swipe 500 500 500 1600 500
+sleep 2
 tap_text "View profile"
 sleep 6
 adb exec-out screencap -p > smoke/09y-own-profile.png
@@ -108,6 +118,11 @@ for server in https://blossom.primal.net https://blossom.band; do
   curl -s -o /dev/null -m 10 -w "$server %{http_code}\n" "$server/" || echo "$server unreachable"
 done
 
+tap_text "New note"
+sleep 2
+adb exec-out screencap -p > smoke/09zz-compose.png
+adb shell input keyevent 4
+sleep 2
 adb shell input keyevent 3
 sleep 3
 adb shell cmd jobscheduler run -f "$PKG" 1
@@ -131,7 +146,7 @@ import base64,glob,io
 from PIL import Image
 files=sorted(glob.glob('smoke/0*.png'))
 w,h=300,660
-files=files[-5:]
+files=[f for f in files if not any(x in f for x in ('01-','05-','06-','07-','09-check','09z-edit'))][:10]
 sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
 for i,f in enumerate(files):
     sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))
