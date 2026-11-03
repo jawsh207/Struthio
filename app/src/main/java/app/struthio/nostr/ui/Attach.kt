@@ -75,7 +75,7 @@ fun AttachImageButton(onUploaded: (Upload) -> Unit) {
 @Composable
 fun AttachedImages(items: List<Upload>, onRemove: (Upload) -> Unit) {
     if (items.isEmpty()) return
-    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.padding(horizontal = PageGutter, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items.forEach { upload ->
             Box {
                 NetImage(upload.url, 88.dp, Modifier.size(88.dp).clip(RoundedCornerShape(16.dp)))

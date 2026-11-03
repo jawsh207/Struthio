@@ -44,12 +44,12 @@ fun AlertsScreen() {
         if (alerts.isEmpty()) {
             Text(
                 "Replies, boosts, reactions and zaps show up here.",
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             itemsIndexed(alerts, key = { _, it -> it.event.id }) { index, alert -> AlertRow(alert, segmentShape(index, alerts.size)) }
         }
     }

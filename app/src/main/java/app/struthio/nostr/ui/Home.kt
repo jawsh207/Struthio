@@ -25,7 +25,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -82,7 +81,7 @@ fun HomeScreen() {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(start = PageGutter, end = PageGutter, top = 8.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SearchPill(onSearch = { nav.push(Screen.Search) }, onSettings = { nav.push(Screen.Settings) })
                 FeedSelector(selected) {
                     picked = true
@@ -109,7 +108,7 @@ private fun SearchPill(onSearch: () -> Unit, onSettings: () -> Unit) {
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier = Modifier.fillMaxWidth().height(56.dp),
     ) {
-        Row(Modifier.padding(start = 16.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(12.dp))
             Text(
@@ -120,11 +119,8 @@ private fun SearchPill(onSearch: () -> Unit, onSettings: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(
-                onClick = onSettings,
-                colors = IconButtonDefaults.filledTonalIconButtonColors(),
-            ) {
-                Icon(Icons.Rounded.Settings, "Settings")
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Rounded.Settings, "Settings", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -181,7 +177,7 @@ fun NoteList(feed: Feed, modifier: Modifier = Modifier, empty: String = "Nothing
         LazyColumn(
             Modifier.fillMaxSize(),
             state = list,
-            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             header?.let { item(key = "header") { it() } }

@@ -82,7 +82,7 @@ fun ThreadScreen(screen: Screen.Thread) {
         } else {
             LazyColumn(
                 Modifier.weight(1f),
-                contentPadding = PaddingValues(8.dp),
+                contentPadding = PaddingValues(horizontal = PageGutter, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val list = notes.ifEmpty { listOf(focus!! to 0) }
@@ -182,14 +182,14 @@ fun ComposeScreen(quoteId: String?) {
             { text = it },
             placeholder = { Text("What's on your mind?") },
             shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth().weight(1f).padding(12.dp),
+            modifier = Modifier.fillMaxWidth().weight(1f).padding(PageGutter),
         )
         AttachedImages(attached) { attached.remove(it) }
         quoted?.let {
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surfaceBright,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
             ) {
                 Column(Modifier.padding(14.dp)) {
                     Text(core.displayName(it.pubkey), style = MaterialTheme.typography.labelLarge)

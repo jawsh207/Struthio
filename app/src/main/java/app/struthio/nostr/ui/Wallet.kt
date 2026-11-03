@@ -75,7 +75,7 @@ fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surfaceBright,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
         ) {
             Column(Modifier.padding(24.dp)) {
                 Text("Balance", style = MaterialTheme.typography.labelLarge)
@@ -91,7 +91,7 @@ fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
                 }
             }
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = PageGutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             itemsIndexed(transactions) { index, t ->
                 CardRow(
                     segmentShape(index, transactions.size),
@@ -130,7 +130,7 @@ private fun ConnectWallet() {
     Surface(
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceBright,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Connect a Lightning wallet", style = MaterialTheme.typography.titleMedium)

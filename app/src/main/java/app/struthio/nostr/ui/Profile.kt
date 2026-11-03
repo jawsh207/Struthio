@@ -108,7 +108,7 @@ fun ProfileScreen(pubkey: String) {
             }
         }
         NoteList(feed, Modifier.weight(1f), header = {
-            Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Avatar(pubkey, 84.dp)
                     Column(Modifier.weight(1f)) {
@@ -183,7 +183,7 @@ fun PeopleScreen(screen: Screen.People) {
         when {
             list == null -> Loading(Modifier.fillMaxWidth().padding(48.dp))
             list.isEmpty() -> Text("Nobody found on these relays.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = PageGutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(list, key = { _, it -> it }) { index, pubkey ->
                     PersonRow(core, pubkey, segmentShape(index, list.size)) { nav.push(Screen.Profile(pubkey)) }
                 }
@@ -247,12 +247,12 @@ fun SearchScreen() {
             },
             singleLine = true,
             shape = RoundedCornerShape(28.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
         )
         if (feed != null) {
             NoteList(feed, Modifier.weight(1f).padding(top = 8.dp), empty = "No notes found.")
         } else {
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = PageGutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(people, key = { _, it -> it }) { index, pubkey ->
                     PersonRow(core, pubkey, segmentShape(index, people.size)) { nav.push(Screen.Profile(pubkey)) }
                 }

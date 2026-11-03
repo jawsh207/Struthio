@@ -84,7 +84,7 @@ fun SettingsScreen() {
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar("Settings")
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp).navigationBarsPadding(),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Section("Account") {
@@ -205,7 +205,7 @@ fun EditProfileScreen() {
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar("Edit profile")
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
                 OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -253,7 +253,7 @@ fun AccountCheckScreen() {
             Loading(Modifier.fillMaxWidth().padding(24.dp))
         } else {
             Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 FilledTonalButton({
@@ -291,7 +291,7 @@ fun RelaysScreen() {
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar("Relays")
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp).navigationBarsPadding(),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Section("Your relays") {

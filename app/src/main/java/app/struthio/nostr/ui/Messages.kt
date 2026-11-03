@@ -88,7 +88,7 @@ fun MessagesScreen() {
                 Surface(
                     shape = RoundedCornerShape(28.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
                 ) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Private messages need an inbox", style = MaterialTheme.typography.titleMedium)
@@ -105,7 +105,7 @@ fun MessagesScreen() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(rooms, key = { _, room -> room.key }) { index, room ->
                     RoomRow(room, segmentShape(index, rooms.size)) { nav.push(Screen.Chat(room.key)) }
                 }
@@ -211,7 +211,7 @@ fun ChatScreen(room: String) {
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
             reverseLayout = true,
-            contentPadding = PaddingValues(12.dp),
+            contentPadding = PaddingValues(horizontal = PageGutter, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(messages, key = { it.id }) { Bubble(it, it.sender == me, others.size > 1, onSave = { file -> saving = file }) }

@@ -52,6 +52,9 @@ import kotlinx.coroutines.withContext
 val LocalCore = staticCompositionLocalOf<Core> { error("no core") }
 val LocalNav = staticCompositionLocalOf<Nav> { error("no nav") }
 
+/** Side margin of every page, shared by search bars, cards and lists, as in Dialtone. */
+val PageGutter = 16.dp
+
 /** A screen's value that follows the cache. */
 @Composable
 fun <T> liveQuery(initial: T, vararg keys: Any?, query: () -> T): State<T> {
