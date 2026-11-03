@@ -35,6 +35,7 @@ import app.struthio.nostr.core.parseLinkInfo
 import app.struthio.nostr.core.parseRelayList
 import app.struthio.nostr.core.prepareContent
 import app.struthio.nostr.core.randomBytes
+import app.struthio.nostr.core.reactionGlyph
 import app.struthio.nostr.core.replyTags
 import app.struthio.nostr.core.reportTags
 import app.struthio.nostr.core.roomOf
@@ -53,6 +54,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -537,23 +539,44 @@ class Core(private val context: Context) {
 
     // Publishing
 
-    /** Signs and publishes to our write relays and the read relays of everyone tagged (NIP-65). */
+    /**
+     * Signs and publishes to our write relays, finishing when the first one accepts. Reaching the
+     * read relays of everyone tagged (NIP-65) happens afterwards, so it never holds anything up.
+     * Leaving a screen can't stop a note that is already signed.
+     */
     suspend fun publish(draft: Draft, extraRelays: Set<String> = emptySet()): Event {
         val active = signer.value ?: throw UserError("Sign in first.")
         val event = active.sign(draft)
+        val own = (writeRelays() + extraRelays).take(MAX_PUBLISH_RELAYS).toSet()
+        withContext(NonCancellable) {
+            val result = pool.publishFirst(event, own)
+            if (!result.ok) throw UserError(result.message.takeIf { it.isNotBlank() } ?: "No relay accepted this.")
+            ingest(event, own.first())
+        }
         val tagged = draft.tags.values("p").distinct().filter(Hex::isKey).take(20)
-        ensureRelayLists(tagged)
-        val targets = writeRelays() + extraRelays + tagged.flatMap { relaysOf(it)?.read.orEmpty().take(3) }
-        ingest(event, targets.firstOrNull() ?: "")
-        val results = pool.publish(event, targets.take(MAX_PUBLISH_RELAYS).toSet())
-        if (results.values.none { it.ok }) {
-            throw UserError(results.values.firstOrNull()?.message?.takeIf { it.isNotBlank() } ?: "No relay accepted this.")
-        }
-        // NIP-65: help whoever reads this find us.
-        if (tagged.isNotEmpty() && draft.kind != Kind.RELAYS) {
-            store.latest(event.pubkey, Kind.RELAYS)?.let { list -> scope.launch { pool.publish(list, results.keys) } }
-        }
+        if (tagged.isNotEmpty()) scope.launch { runCatching { reachTagged(event, tagged, own) } }
         return event
+    }
+
+    private suspend fun reachTagged(event: Event, tagged: List<String>, sent: Set<String>) {
+        ensureRelayLists(tagged)
+        val inboxes = (tagged.flatMap { relaysOf(it)?.read.orEmpty().take(3) }.toSet() - sent).take(MAX_PUBLISH_RELAYS).toSet()
+        pool.publish(event, inboxes)
+        // NIP-65: help whoever reads this find us.
+        if (event.kind != Kind.RELAYS) store.latest(event.pubkey, Kind.RELAYS)?.let { pool.publish(it, inboxes) }
+    }
+
+    /** Shows [change] on a note at once. The real counts follow, which undoes it if sending failed. */
+    private suspend fun tentatively(id: String, change: (Stats) -> Stats, send: suspend () -> Unit) {
+        withContext(Dispatchers.Main) { stats[id] = change(stats[id] ?: Stats()) }
+        try {
+            send()
+        } finally {
+            withContext(NonCancellable) {
+                delay(150)
+                refreshStats(listOf(id))
+            }
+        }
     }
 
     private fun author(): String = me ?: throw UserError("Sign in first.")
@@ -634,8 +657,9 @@ class Core(private val context: Context) {
         tags += listOf("p", target.pubkey)
         if (generic) tags += listOf("k", target.kind.toString())
         val protected = target.tags.any { it.firstOrNull() == "-" }
-        publish(Draft(author(), nowSeconds(), if (generic) Kind.GENERIC_REPOST else Kind.REPOST, tags, if (protected) "" else target.toJson()))
-        refreshStats(listOf(target.id))
+        tentatively(target.id, { if (it.mineBoosted) it else it.copy(boosts = it.boosts + 1, mineBoosted = true) }) {
+            publish(Draft(author(), nowSeconds(), if (generic) Kind.GENERIC_REPOST else Kind.REPOST, tags, if (protected) "" else target.toJson()))
+        }
     }
 
     suspend fun react(target: Event, content: String = DEFAULT_REACTION) {
@@ -645,9 +669,8 @@ class Core(private val context: Context) {
             listOf("p", target.pubkey, hint),
             listOf("k", target.kind.toString()),
         )
-        publish(Draft(author(), nowSeconds(), Kind.REACTION, tags, content))
-        delay(100)
-        refreshStats(listOf(target.id))
+        val shown = { s: Stats -> s.copy(mine = reactionGlyph(content), reactions = s.reactions + if (s.mine == null) 1 else 0, mineReacted = true) }
+        tentatively(target.id, shown) { publish(Draft(author(), nowSeconds(), Kind.REACTION, tags, content)) }
     }
 
     /** NIP-09: reactions are taken back by asking relays to delete them. */
@@ -656,9 +679,10 @@ class Core(private val context: Context) {
         val mine = store.myReactions(target.id, me)
         if (mine.isEmpty()) return
         val tags = mine.map { listOf("e", it.id) } + listOf(listOf("k", Kind.REACTION.toString()))
-        publish(Draft(me, nowSeconds(), Kind.DELETION, tags, ""))
-        delay(150)
-        refreshStats(listOf(target.id))
+        val hidden = { s: Stats ->
+            s.copy(mine = null, reactions = (s.reactions - 1).coerceAtLeast(0), mineReacted = false, top = if (s.reactions <= 1) emptyList() else s.top)
+        }
+        tentatively(target.id, hidden) { publish(Draft(me, nowSeconds(), Kind.DELETION, tags, "")) }
     }
 
     suspend fun saveProfile(fields: Map<String, String>) {
@@ -891,10 +915,11 @@ class Core(private val context: Context) {
         val json = rumor.toJson()
         var delivered = false
         for ((recipient, relays) in targets) {
-            delivered = pool.publish(wrapFor(json, recipient, active), relays.toSet()).values.any { it.ok } || delivered
+            delivered = pool.publishFirst(wrapFor(json, recipient, active), relays.toSet()).ok || delivered
         }
         if (!delivered) throw UserError("The message could not be delivered.")
-        pool.publish(wrapFor(json, active.pubkey, active), mine.toSet())
+        val ownCopy = wrapFor(json, active.pubkey, active)
+        scope.launch { pool.publish(ownCopy, mine.toSet()) }
         store.addDm(Dm(rumor.id, roomKey(room), active.pubkey, rumor.createdAt, preview, file))
         changes.tryEmit(Unit)
     }

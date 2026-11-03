@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -127,6 +128,23 @@ class RelayPool(
             relays[url]?.forget(event.id)
             if (deferred.isCompleted) deferred.getCompleted() else PublishResult(false, "timed out")
         }
+    }
+
+    /** Answers as soon as one relay accepts. The others keep going here until they finish or time out. */
+    suspend fun publishFirst(event: Event, urls: Set<String>, timeoutMs: Long = 8_000): PublishResult {
+        if (urls.isEmpty()) return PublishResult(false, "")
+        val pending = urls.associateWith { relay(it).publish(event) }
+        val answer = CompletableDeferred<PublishResult>()
+        scope.launch {
+            withTimeoutOrNull(timeoutMs) {
+                pending.values.map { sent ->
+                    launch { if (sent.await().ok) answer.complete(PublishResult(true, "")) }
+                }.joinAll()
+            }
+            urls.forEach { relays[it]?.forget(event.id) }
+            answer.complete(pending.values.firstOrNull { it.isCompleted }?.getCompleted() ?: PublishResult(false, "timed out"))
+        }
+        return answer.await()
     }
 
     /**
