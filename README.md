@@ -66,4 +66,21 @@ Not used on purpose: NIP-04, NIP-06, NIP-08, NIP-26, NIP-96 and relay lists insi
 ./gradlew testDebugUnitTest assembleRelease
 ```
 
-APKs land in `app/build/outputs/apk/release/`. CI also publishes them as an artifact on every push. To sign CI builds, set the secrets `STRUTHIO_KEYSTORE_BASE64`, `STRUTHIO_KEYSTORE_PASSWORD`, `STRUTHIO_KEY_ALIAS` and `STRUTHIO_KEY_PASSWORD`.
+APKs land in `app/build/outputs/apk/release/`. CI also publishes them as an artifact on every push.
+
+## Releases
+
+Actions › Build release › Run workflow picks the next version, builds and signs the APKs, tags the commit and publishes a GitHub Release. Pushing a new `release-notes/vX.Y.Z.md` to `main` does the same with hand-written notes.
+
+## Signing
+
+CI needs four repository secrets (Settings › Secrets and variables › Actions). Without them, test builds use a temporary debug key and releases are refused.
+
+| Secret | Value |
+| --- | --- |
+| `STRUTHIO_KEYSTORE_BASE64` | the keystore file, base64-encoded on one line |
+| `STRUTHIO_KEYSTORE_PASSWORD` | keystore password |
+| `STRUTHIO_KEY_ALIAS` | `struthio` |
+| `STRUTHIO_KEY_PASSWORD` | key password, the same as the keystore password |
+
+Keep the keystore and its password backed up privately. Android only accepts updates signed with the same key, and anyone holding it can sign APKs that install over Struthio.

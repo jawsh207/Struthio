@@ -1,0 +1,77 @@
+name: Build release
+
+# Actions › "Build release" › Run workflow. Picks the next version from the latest tag,
+# then runs the normal build (build.yml) as a release: signed R8 APK, vX.Y.Z tag, and a
+# GitHub Release whose notes hold the change log since the previous release.
+# For hand-written notes, add release-notes/vX.Y.Z.md first (or push it instead of using this).
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [minor, patch, major]
+        default: minor
+      version:
+        description: Exact version instead (e.g. 0.5.0); leave empty to use the bump
+        type: string
+        required: false
+      summary:
+        description: One-line summary for the top of the release notes (optional)
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Choose version
+        id: next
+        shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXACT: ${{ inputs.version }}
+        run: |
+          LAST=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          if [[ -n "${EXACT// /}" ]]; then
+            TAG="v${EXACT#v}"
+          else
+            IFS=. read -r MA MI PA <<< "${LAST#v}"
+            MA=${MA:-0}; MI=${MI:-0}; PA=${PA:-0}
+            case "$BUMP" in
+              major) TAG="v$((MA + 1)).0.0" ;;
+              patch) TAG="v$MA.$MI.$((PA + 1))" ;;
+              *)     TAG="v$MA.$((MI + 1)).0" ;;
+            esac
+          fi
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error title=Bad version::$TAG"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error title=Version exists::$TAG is already released"; exit 1
+          fi
+          if [[ -n "$LAST" ]] && [[ -z "$(git log --format=%h "$LAST..HEAD")" ]]; then
+            echo "::error title=Nothing to release::No commits since $LAST"; exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Releasing $TAG::previous ${LAST:-none}"
+
+  release:
+    needs: version
+    uses: ./.github/workflows/build.yml
+    with:
+      release_tag: ${{ needs.version.outputs.tag }}
+      release_summary: ${{ inputs.summary }}
+    secrets: inherit
