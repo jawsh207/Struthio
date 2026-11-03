@@ -34,6 +34,7 @@ jobs:
           echo "STRUTHIO_VERSION_NAME=0.1.0-ci.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Test and build
+        shell: bash
         env:
           STRUTHIO_KEYSTORE_PASSWORD: ${{ secrets.STRUTHIO_KEYSTORE_PASSWORD }}
           STRUTHIO_KEY_ALIAS: ${{ secrets.STRUTHIO_KEY_ALIAS }}
@@ -43,6 +44,7 @@ jobs:
 
       - name: Report APK sizes
         if: success()
+        shell: bash
         run: |
           {
             echo "### APK sizes"

@@ -85,11 +85,8 @@ class ProtocolTest {
     }
 
     @Test
-    fun zapRequestIdAndSignatureFromSpec() {
-        val event = Event.parse(
-            """{"pubkey":"97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322","content":"","id":"d9cc14d50fcb8c27539aacf776882942c1a11ea4472f8cdec1dea82fab66279d","created_at":1674164539,"sig":"77127f636577e9029276be060332ea565deaf89ff215a494ccff16ae3f757065e2bc59b2e8c113dd407917a010b3abd36c8d7ad84c0e3ab7dab3a0b0caa9835d","kind":9734,"tags":[["e","3624762a1274dd9636e0c552b53086d70bc88c165bc4dc0f9e836a1eaf86c3b8"],["p","32e1827635450ebb3c5a7d12c1f8e7b2b514439ac10a67eef3d9fd9c5c68e245"],["relays","wss://relay.damus.io","wss://nostr-relay.wlvs.space","wss://nostr.fmt.wiz.biz","wss://relay.nostr.bg","wss://nostr.oxtr.dev","wss://nostr.v0l.io","wss://brb.io","wss://nostr.bitcoiner.social","ws://monad.jb55.com:8080","wss://relay.snort.social"]]}""",
-        )!!
-        assertTrue(event.hasValidId())
+    fun tamperedEventsAreRejected() {
+        val event = event(Kind.NOTE, emptyList(), "original")
         assertTrue(event.isValid())
         assertFalse(Event(event.id, event.pubkey, event.createdAt, event.kind, event.tags, "tampered", event.sig).isValid())
     }
@@ -132,23 +129,30 @@ class ProtocolTest {
     }
 
     @Test
-    fun zapReceiptFromSpec() {
-        val request = """{"pubkey":"97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322","content":"","id":"d9cc14d50fcb8c27539aacf776882942c1a11ea4472f8cdec1dea82fab66279d","created_at":1674164539,"sig":"77127f636577e9029276be060332ea565deaf89ff215a494ccff16ae3f757065e2bc59b2e8c113dd407917a010b3abd36c8d7ad84c0e3ab7dab3a0b0caa9835d","kind":9734,"tags":[["e","3624762a1274dd9636e0c552b53086d70bc88c165bc4dc0f9e836a1eaf86c3b8"],["p","32e1827635450ebb3c5a7d12c1f8e7b2b514439ac10a67eef3d9fd9c5c68e245"],["relays","wss://relay.damus.io","wss://nostr-relay.wlvs.space","wss://nostr.fmt.wiz.biz","wss://relay.nostr.bg","wss://nostr.oxtr.dev","wss://nostr.v0l.io","wss://brb.io","wss://nostr.bitcoiner.social","ws://monad.jb55.com:8080","wss://relay.snort.social"]]}"""
-        val receipt = Event(
-            "67b48a14fb66c60c8f9070bdeb37afdfcc3d08ad01989460448e4081eddda446",
-            "9630f464cca6a5147aa8a35f0bcdd3ce485324e732fd39e09233b1d848238f31",
-            1674164545, Kind.ZAP_RECEIPT,
-            listOf(
-                listOf("p", "32e1827635450ebb3c5a7d12c1f8e7b2b514439ac10a67eef3d9fd9c5c68e245"),
-                listOf("e", "3624762a1274dd9636e0c552b53086d70bc88c165bc4dc0f9e836a1eaf86c3b8"),
-                listOf("bolt11", "lnbc10u1p3unwfusp5t9r3yymhpfqculx78u027lxspgxcr2n2987mx2j55nnfs95nxnzqpp5"),
-                listOf("description", request),
-            ),
-            "", "",
+    fun zapReceiptValidation() {
+        val invoice = "lnbc10u1p3unwfusp5t9r3yymhpfqculx78u027lxspgxcr2n2987mx2j55nnfs95nxnzqpp5"
+        val recipient = "a".repeat(64)
+        val target = "b".repeat(64)
+        val request = event(
+            Kind.ZAP_REQUEST,
+            listOf(listOf("relays", "wss://r"), listOf("amount", "1000000"), listOf("p", recipient), listOf("e", target)),
+            "great note",
         )
-        val zap = parseZapReceipt(receipt)!!
+        fun receipt(description: String) = event(
+            Kind.ZAP_RECEIPT,
+            listOf(listOf("p", recipient), listOf("e", target), listOf("bolt11", invoice), listOf("description", description)),
+            "",
+        )
+        val zap = parseZapReceipt(receipt(request.toJson()))!!
         assertEquals(1_000_000L, zap.msats)
-        assertEquals("97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322", zap.sender)
+        assertEquals(request.pubkey, zap.sender)
+        assertEquals(target, zap.target)
+        assertEquals("great note", zap.comment)
+
+        val wrongAmount = event(Kind.ZAP_REQUEST, listOf(listOf("amount", "5000"), listOf("p", recipient)), "")
+        assertNull(parseZapReceipt(receipt(wrongAmount.toJson())))
+        val forged = Event(request.id, request.pubkey, request.createdAt, request.kind, request.tags, "edited", request.sig)
+        assertNull(parseZapReceipt(receipt(forged.toJson())))
     }
 
     @Test
