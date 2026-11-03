@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.Filter
@@ -284,7 +285,14 @@ fun PersonRow(core: Core, pubkey: String, shape: Shape, onClick: () -> Unit) {
     CardRow(
         shape,
         onClick,
-        headlineContent = { Text(core.displayName(pubkey)) },
+        headlineContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(core.displayName(pubkey), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (core.profiles[pubkey]?.verified == true) {
+                    Icon(Icons.Rounded.Verified, "Verified", Modifier.padding(start = 4.dp).size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
         supportingContent = core.profiles[pubkey]?.nip05?.let { { Text(it) } },
         leadingContent = { Avatar(pubkey, 40.dp) },
     )
