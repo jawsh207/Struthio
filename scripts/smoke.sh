@@ -80,7 +80,17 @@ adb shell input keyevent 4
 sleep 2
 tap_text "Messages"
 sleep 3
+tap_text "New message"
+sleep 2
+tap_text "Name, NIP-05 address or npub"
+sleep 1
+adb shell input text "jb55@jb55.com"
+sleep 7
 adb exec-out screencap -p > smoke/06-messages.png
+adb shell input keyevent 111
+sleep 1
+adb shell input keyevent 4
+sleep 1
 tap_text "Notifications"
 sleep 3
 adb exec-out screencap -p > smoke/07-notifications.png
