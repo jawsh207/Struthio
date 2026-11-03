@@ -128,7 +128,7 @@ sleep 3
 adb shell cmd jobscheduler run -f "$PKG" 1
 sleep 30
 grep -E "Struthio|could not schedule|IllegalArgument" smoke/logcat.txt | head -5 || true
-adb logcat -d | grep -E "W Struthio|could not schedule|JobSchedulerService.*struthio" | head -8
+adb logcat -d | grep -E "I Struthio|W Struthio|could not schedule" | head -8
 echo "notifications posted: $(adb shell dumpsys notification --noredact | grep -c "pkg=$PKG")"
 adb shell dumpsys jobscheduler | grep -E "$PKG" | head -4 | cut -c1-120
 adb logcat -d > smoke/logcat.txt

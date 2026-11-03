@@ -1085,10 +1085,10 @@ class Core(private val context: Context) {
         val active = signer.value ?: return
         val pubkey = active.pubkey
         val now = nowSeconds()
-        val since = prefs.getLong("notify_since", now - 3600)
+        val since = prefs.getLong("notify_since", now - FIRST_CHECK_WINDOW_S)
         if (pool.isVisible) {
-            // On screen, activity shows up by itself. The first background check starts from the
-            // last hour, so this only moves a starting point that already exists.
+            // On screen, activity shows up by itself. The first background check looks back a few
+            // hours, so this only moves a starting point that already exists.
             if (prefs.contains("notify_since")) prefs.edit().putLong("notify_since", now).apply()
             return
         }
@@ -1122,6 +1122,7 @@ class Core(private val context: Context) {
                 }
             }
             delay(100)
+            android.util.Log.i("Struthio", "check: ${alerts.size} alerts, $messages messages, ${answered.size} relays")
             Notifier.post(context, alerts, messages, ::displayName)
             if (answered.isNotEmpty()) prefs.edit().putLong("notify_since", now).apply()
         } finally {
@@ -1204,6 +1205,7 @@ class Core(private val context: Context) {
         private const val IMAGE_CACHE_BYTES = 80L * 1024 * 1024
         private const val MAX_FEED_RELAYS = 8
         private const val TRUST_THRESHOLD = 2
+        private const val FIRST_CHECK_WINDOW_S = 6 * 3600L
 
         /** One request stays well under the frame limits relays apply. */
         const val MAX_AUTHORS = 400
