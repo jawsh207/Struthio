@@ -8,6 +8,7 @@ material3 = "1.5.0-beta01"
 materialIcons = "1.7.8"
 coroutines = "1.10.2"
 secp256k1 = "0.24.0"
+zxing = "3.5.4"
 junit = "4.13.2"
 json = "20250517"
 
@@ -20,6 +21,7 @@ androidx-compose-material-icons-extended = { group = "androidx.compose.material"
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 secp256k1-android = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-android", version.ref = "secp256k1" }
 secp256k1-jvm = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-jvm", version.ref = "secp256k1" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }
 

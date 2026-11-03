@@ -89,6 +89,28 @@ class RelayPool(
         return answered.get()
     }
 
+    /** NIP-45 counts where relays offer them; the highest answer wins because relays see partial data. */
+    suspend fun count(urls: Set<String>, filter: Filter, timeoutMs: Long = 5_000): Long? {
+        var best: Long? = null
+        val remaining = HashSet(urls)
+        val done = CompletableDeferred<Unit>()
+        val id = "c${nextId.incrementAndGet()}"
+        val request = "[\"COUNT\",${quoteJson(id)},${filter.toJson()}]"
+        urls.forEach { url ->
+            relay(url).count(id, request) { value ->
+                val finished = synchronized(remaining) {
+                    if (value != null) best = maxOf(best ?: 0, value)
+                    remaining.remove(url)
+                    remaining.isEmpty()
+                }
+                if (finished) done.complete(Unit)
+            }
+        }
+        withTimeoutOrNull(timeoutMs) { done.await() }
+        urls.forEach { relays[it]?.endCount(id) }
+        return synchronized(remaining) { best }
+    }
+
     suspend fun publish(event: Event, urls: Set<String>, timeoutMs: Long = 8_000): Map<String, PublishResult> {
         if (urls.isEmpty()) return emptyMap()
         val pending = urls.associateWith { relay(it).publish(event) }
@@ -125,6 +147,7 @@ class RelayPool(
         private val lock = Any()
         private val subs = LinkedHashMap<String, Subscription>()
         private val pending = LinkedHashMap<String, Pending>()
+        private val counts = LinkedHashMap<String, Pair<String, (Long?) -> Unit>>()
         private var socket: WebSocket? = null
         private var open = false
         private var failures = 0
@@ -151,6 +174,23 @@ class RelayPool(
                 found && open
             }
             if (wasOpen) write("[\"CLOSE\",${quoteJson(sub.id)}]")
+        }
+
+        fun count(id: String, request: String, onResult: (Long?) -> Unit) {
+            val send = synchronized(lock) {
+                counts[id] = request to onResult
+                idleJob?.cancel()
+                ensureConnected()
+                open
+            }
+            if (send) write(request)
+        }
+
+        fun endCount(id: String) {
+            synchronized(lock) {
+                counts.remove(id)
+                scheduleIdleClose()
+            }
         }
 
         fun publish(event: Event): CompletableDeferred<PublishResult> {
@@ -184,12 +224,12 @@ class RelayPool(
         }
 
         private fun scheduleIdleClose() {
-            if (subs.isNotEmpty() || pending.isNotEmpty()) return
+            if (subs.isNotEmpty() || pending.isNotEmpty() || counts.isNotEmpty()) return
             idleJob?.cancel()
             idleJob = scope.launch {
                 delay(IDLE_CLOSE_MS)
                 val ws = synchronized(lock) {
-                    if (subs.isEmpty() && pending.isEmpty()) socket else null
+                    if (subs.isEmpty() && pending.isEmpty() && counts.isEmpty()) socket else null
                 }
                 ws?.close()
             }
@@ -199,7 +239,8 @@ class RelayPool(
             val requests = synchronized(lock) {
                 open = true
                 failures = 0
-                subs.values.map { it.request } + pending.values.map { "[\"EVENT\",${it.event.toJson()}]" }
+                subs.values.map { it.request } + pending.values.map { "[\"EVENT\",${it.event.toJson()}]" } +
+                    counts.values.map { it.first }
             }
             requests.forEach { socket?.send(it) }
         }
@@ -208,7 +249,10 @@ class RelayPool(
             val failed: List<Pending>
             val current: List<Subscription>
             val retry: Boolean
+            val waiting: List<(Long?) -> Unit>
             synchronized(lock) {
+                waiting = counts.values.map { it.second }
+                counts.clear()
                 val wasOpen = open
                 open = false
                 socket = null
@@ -231,6 +275,7 @@ class RelayPool(
             }
             failed.forEach { it.result.complete(PublishResult(false, error?.message ?: "connection closed")) }
             current.forEach { it.onDone(url) }
+            waiting.forEach { it(null) }
         }
 
         fun disconnect() {
@@ -257,11 +302,19 @@ class RelayPool(
                     val event = msg.optJSONObject(2)?.let(Event::parse) ?: return
                     if (accept(event)) sub.onEvent(event, url)
                 }
+                "COUNT" -> {
+                    val item = synchronized(lock) { counts.remove(msg.optString(1)) } ?: return
+                    item.second(msg.optJSONObject(2)?.optLong("count"))
+                }
                 "EOSE" -> synchronized(lock) { subs[msg.optString(1)] }?.onDone?.invoke(url)
                 "OK" -> ok(msg.optString(1), msg.optBoolean(2), msg.optString(3))
                 "CLOSED" -> {
                     val id = msg.optString(1)
                     val reason = msg.optString(2)
+                    synchronized(lock) { counts.remove(id) }?.let {
+                        it.second(null)
+                        return
+                    }
                     val sub = synchronized(lock) { subs[id] } ?: return
                     if (reason.startsWith("auth-required") && signer() != null) {
                         synchronized(lock) { waitingForAuth += id }

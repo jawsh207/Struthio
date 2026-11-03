@@ -10,7 +10,7 @@ import java.net.URL
 /** Plain HTTPS through the platform stack. */
 object Http {
     private const val MAX_JSON = 256 * 1024
-    private const val MAX_IMAGE = 12 * 1024 * 1024
+    private const val MAX_FILE = 32 * 1024 * 1024
 
     private fun open(url: String, followRedirects: Boolean): HttpURLConnection {
         require(url.startsWith("https://")) { "only https is allowed" }
@@ -49,7 +49,27 @@ object Http {
         val conn = open(url, true)
         try {
             if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
-            return read(conn, MAX_IMAGE)
+            return read(conn, MAX_FILE)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** Blossom upload: the body is sent as is, and the server describes what it stored. */
+    fun put(url: String, body: ByteArray, type: String, headers: Map<String, String>): JSONObject {
+        val conn = open(url, true)
+        try {
+            conn.requestMethod = "PUT"
+            conn.doOutput = true
+            conn.readTimeout = 60_000
+            conn.setFixedLengthStreamingMode(body.size)
+            conn.setRequestProperty("Content-Type", type)
+            headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
+            conn.outputStream.use { it.write(body) }
+            if (conn.responseCode !in 200..299) {
+                throw IOException(conn.getHeaderField("X-Reason") ?: "HTTP ${conn.responseCode}")
+            }
+            return JSONObject(String(read(conn, MAX_JSON)))
         } finally {
             conn.disconnect()
         }

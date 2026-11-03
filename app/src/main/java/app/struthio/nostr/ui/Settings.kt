@@ -82,6 +82,7 @@ fun SettingsScreen() {
     var nip05 by remember { mutableStateOf(current.optString("nip05")) }
     var lud16 by remember { mutableStateOf(current.optString("lud16")) }
     var saving by remember { mutableStateOf(false) }
+    var servers by remember { mutableStateOf(core.mediaServers().joinToString("\n")) }
     var revealed by remember { mutableStateOf<String?>(null) }
     var confirmReveal by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
@@ -122,6 +123,21 @@ fun SettingsScreen() {
             Section("Relays") {
                 Text("Choose where your notes go and where people can reach you.", style = MaterialTheme.typography.bodyMedium)
                 FilledTonalButton({ nav.push(Screen.Relays) }) { Text("Manage relays") }
+            }
+            Section("Media servers") {
+                Text("Images and files you send are stored here. One server per line.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(servers, { servers = it }, modifier = Modifier.fillMaxWidth())
+                FilledTonalButton({
+                    val list = servers.lines().map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
+                    if (list.isEmpty()) {
+                        nav.say("Servers start with https://")
+                    } else {
+                        scope.act(nav) {
+                            core.saveMediaServers(list)
+                            nav.say("Media servers saved")
+                        }
+                    }
+                }) { Text("Save servers") }
             }
             Section("Account") {
                 val npub = Nip19.npub(me)
@@ -329,7 +345,7 @@ fun Onboarding(modifier: Modifier = Modifier) {
             Button({ run { core.createAccount(name.trim()) } }, enabled = name.isNotBlank() && !busy) { Text("Create account") }
         }
         Section("Already have a key") {
-            OutlinedTextField(key, { key = it }, label = { Text("nsec…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(key, { key = it }, label = { Text("nsec, or npub to browse read-only") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             FilledTonalButton({ run { core.signIn(key) } }, enabled = key.isNotBlank() && !busy) { Text("Sign in") }
             if (ExternalSigner.isInstalled(context)) {
                 OutlinedButton(

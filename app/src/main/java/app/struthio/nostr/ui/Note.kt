@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -22,7 +23,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.outlined.Bolt
@@ -52,6 +52,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -282,25 +284,32 @@ private fun QuoteCard(ref: Entity.Note) {
 /** A button whose corners tighten when selected, the Expressive shape change from the mockup. */
 @Composable
 private fun RowScope.ActionButton(
-    icon: ImageVector,
+    icon: ImageVector?,
     label: String,
     selected: Boolean,
     selectedColor: Color,
     onSelectedColor: Color,
     description: String,
     weight: Float = 1f,
+    glyphs: String = "",
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val radius by animateDpAsState(if (selected) 14.dp else 22.dp, label = "corner")
     Surface(
-        onClick = onClick,
-        modifier = Modifier.weight(weight).height(44.dp),
+        modifier = Modifier
+            .weight(weight)
+            .height(44.dp)
+            .clip(RoundedCornerShape(radius))
+            .combinedClickable(onLongClick = onLongClick, onClickLabel = description, onClick = onClick)
+            .semantics { contentDescription = description },
         shape = RoundedCornerShape(radius),
         color = if (selected) selectedColor else Color.Transparent,
         contentColor = if (selected) onSelectedColor else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
         Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, description, Modifier.size(20.dp))
+            if (icon != null) Icon(icon, null, Modifier.size(20.dp))
+            if (glyphs.isNotEmpty()) Text(glyphs, fontSize = 16.sp, maxLines = 1)
             if (label.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
                 Text(label, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
@@ -319,6 +328,7 @@ private fun Actions(event: Event) {
     val colors = MaterialTheme.colorScheme
     var boostMenu by remember { mutableStateOf(false) }
     var zapping by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
 
     Row(
         Modifier.padding(top = 8.dp).padding(horizontal = 0.dp),
@@ -346,12 +356,16 @@ private fun Actions(event: Event) {
                 })
             }
         }
+        val shown = (listOfNotNull(stats.mine) + stats.top).distinct().take(2).joinToString("")
         ActionButton(
-            if (stats.mineReacted) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
-            count(stats.reactions.toLong()), stats.mineReacted, colors.secondaryContainer,
+            Icons.Outlined.FavoriteBorder.takeIf { shown.isEmpty() },
+            count(stats.reactions.toLong()), stats.mine != null, colors.secondaryContainer,
             colors.onSecondaryContainer, "Reactions",
+            glyphs = shown,
+            onLongClick = { picking = true },
         ) {
-            if (!stats.mineReacted) scope.act(nav) { core.react(event) }
+            // A tap gives a purple heart, and a second tap takes the reaction back.
+            scope.act(nav) { if (stats.mine != null) core.unreact(event) else core.react(event) }
         }
         ActionButton(
             if (stats.mineZapped) Icons.Rounded.Bolt else Icons.Outlined.Bolt,
@@ -360,6 +374,12 @@ private fun Actions(event: Event) {
         ) { zapping = true }
     }
     if (zapping) ZapSheet(event, event.pubkey) { zapping = false }
+    if (picking) {
+        EmojiSheet({ emoji ->
+            picking = false
+            scope.act(nav) { core.react(event, emoji) }
+        }) { picking = false }
+    }
 }
 
 private fun count(n: Long) = if (n > 0) compact(n) else ""

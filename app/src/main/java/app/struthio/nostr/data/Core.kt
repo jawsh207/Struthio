@@ -6,7 +6,10 @@ import android.os.Looper
 import androidx.compose.runtime.mutableStateMapOf
 import app.struthio.nostr.core.Draft
 import app.struthio.nostr.core.Entity
+import app.struthio.nostr.core.DEFAULT_REACTION
 import app.struthio.nostr.core.Event
+import app.struthio.nostr.core.FileCipher
+import app.struthio.nostr.core.FileMessage
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Hex
 import app.struthio.nostr.core.Keys
@@ -14,18 +17,23 @@ import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.LocalSigner
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.Nip44
+import app.struthio.nostr.core.ReadOnlySigner
 import app.struthio.nostr.core.RelayList
 import app.struthio.nostr.core.Signer
 import app.struthio.nostr.core.Tags
 import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.core.chooseRelays
+import app.struthio.nostr.core.imetaTag
 import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.core.nowSeconds
+import app.struthio.nostr.core.parseFileMessage
 import app.struthio.nostr.core.parseRelayList
 import app.struthio.nostr.core.prepareContent
+import app.struthio.nostr.core.randomBytes
 import app.struthio.nostr.core.replyTags
 import app.struthio.nostr.core.roomOf
 import app.struthio.nostr.core.secureRandom
+import app.struthio.nostr.core.sha256
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.core.values
 import app.struthio.nostr.core.zapSplits
@@ -37,7 +45,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,8 +83,12 @@ class Core(private val context: Context) {
     val imageDir = File(context.cacheDir, "images")
     val pool = RelayPool(scope) { signer.value }
     val wallet = Wallet(this)
+    val media = MediaUploader(this, context)
 
     val signer = MutableStateFlow<Signer?>(null)
+
+    /** True once the account's own lists have been asked for, so an empty list really is empty. */
+    val sessionLoaded = MutableStateFlow(false)
     val me: String? get() = signer.value?.pubkey
 
     val profiles = mutableStateMapOf<String, Profile>()
@@ -112,10 +127,14 @@ class Core(private val context: Context) {
         while (true) {
             batch += incoming.receive()
             while (batch.size < 256) batch += incoming.tryReceive().getOrNull() ?: break
-            val added = store.insert(batch.filterNot { (e, _) -> e.isExpired() || e.pubkey in muted.value })
+            try {
+                val added = store.insert(batch.filterNot { (e, _) -> e.isExpired() || e.pubkey in muted.value })
+                added.forEach(::onNewEvent)
+                if (added.isNotEmpty()) changes.tryEmit(Unit)
+            } catch (e: android.database.SQLException) {
+                // One unstorable batch must not stop everything after it.
+            }
             batch.clear()
-            added.forEach(::onNewEvent)
-            if (added.isNotEmpty()) changes.tryEmit(Unit)
             delay(60)
         }
     }
@@ -229,19 +248,24 @@ class Core(private val context: Context) {
         }
     }
 
-    fun relaysOf(pubkey: String): RelayList? = synchronized(relayLists) {
-        relayLists[pubkey] ?: store.latest(pubkey, Kind.RELAYS)?.let(::parseRelayList)?.also { relayLists[pubkey] = it }
-    }
+    fun relaysOf(pubkey: String): RelayList? = synchronized(relayLists) { relayLists[pubkey] }
+        ?: store.latest(pubkey, Kind.RELAYS)?.let(::parseRelayList)?.also { list ->
+            synchronized(relayLists) { relayLists[pubkey] = list }
+        }
 
     private suspend fun ensureRelayLists(pubkeys: Collection<String>) {
         val known = store.latestOfKind(pubkeys, Kind.RELAYS)
         synchronized(relayLists) { known.forEach { relayLists[it.pubkey] = parseRelayList(it) } }
         val missing = pubkeys.toSet() - known.map { it.pubkey }.toSet()
-        missing.chunked(400).forEach { chunk ->
-            pool.query(INDEXER_RELAYS.toSet(), listOf(Filter(authors = chunk, kinds = listOf(Kind.RELAYS)))) { e, relay ->
-                synchronized(relayLists) { relayLists[e.pubkey] = parseRelayList(e) }
-                ingest(e, relay)
-            }
+        coroutineScope {
+            missing.chunked(MAX_AUTHORS).map { chunk ->
+                async {
+                    pool.query(INDEXER_RELAYS.toSet(), listOf(Filter(authors = chunk, kinds = listOf(Kind.RELAYS))), 4_000) { e, relay ->
+                        synchronized(relayLists) { relayLists[e.pubkey] = parseRelayList(e) }
+                        ingest(e, relay)
+                    }
+                }
+            }.awaitAll()
         }
     }
 
@@ -316,23 +340,35 @@ class Core(private val context: Context) {
     private suspend fun restoreAccount() {
         val external = prefs.getString("signer_package", null)
         val externalKey = prefs.getString("signer_pubkey", null)
+        val readOnly = prefs.getString("read_only_pubkey", null)
         val active: Signer? = when {
             external != null && externalKey != null -> ExternalSigner(context, externalKey, external)
+            readOnly != null -> ReadOnlySigner(readOnly)
             else -> runCatching { secure.get(KEY_SECRET) }.getOrNull()?.let { LocalSigner(it) }
         }
-        wallet.restore()
         if (active != null) activate(active)
+        wallet.restore()
     }
 
     private suspend fun activate(active: Signer) {
-        signer.value = active
         val pubkey = active.pubkey
+        sessionLoaded.value = false
+        // Cached lists first: screens look at these as soon as a signer exists.
+        loadCachedLists(pubkey)
+        signer.value = active
+        applyCachedMutes(pubkey)
+        wantProfile(pubkey)
+        startSession()
+    }
+
+    private fun loadCachedLists(pubkey: String) {
         store.latest(pubkey, Kind.FOLLOWS)?.let(::applyFollows)
         store.latest(pubkey, Kind.RELAYS)?.let { myRelays.value = parseRelayList(it).orDefaults() }
         store.latest(pubkey, Kind.DM_RELAYS)?.let { dmRelays.value = it.tags.values("relay").mapNotNull(::normalizeRelay) }
+    }
+
+    private suspend fun applyCachedMutes(pubkey: String) {
         store.latest(pubkey, Kind.MUTES)?.let { applyMutes(it) }
-        wantProfile(pubkey)
-        startSession()
     }
 
     /** A new account gets a key, a profile and the relay lists others need to reach it. */
@@ -349,18 +385,24 @@ class Core(private val context: Context) {
     suspend fun signIn(input: String) {
         val text = input.trim()
         val entity = Nip19.decode(text)
+        if (entity is Entity.Profile) {
+            prefs.edit().putString("read_only_pubkey", entity.pubkey).apply()
+            activate(ReadOnlySigner(entity.pubkey))
+            return
+        }
         val secret = when {
             entity is Entity.Secret -> entity.key
             Hex.isKey(text.lowercase()) -> Hex.decode(text.lowercase())
-            else -> throw UserError("That is not a private key (nsec).")
+            else -> throw UserError("That is not an nsec or npub.")
         }
         if (!Keys.isValidSecret(secret)) throw UserError("That key is not valid.")
         secure.put(KEY_SECRET, secret)
+        prefs.edit().remove("read_only_pubkey").apply()
         activate(LocalSigner(secret))
     }
 
     suspend fun signInExternal(pubkey: String, packageName: String) {
-        prefs.edit().putString("signer_package", packageName).putString("signer_pubkey", pubkey).apply()
+        prefs.edit().putString("signer_package", packageName).putString("signer_pubkey", pubkey).remove("read_only_pubkey").apply()
         activate(ExternalSigner(context, pubkey, packageName))
     }
 
@@ -374,6 +416,7 @@ class Core(private val context: Context) {
         prefs.edit().clear().apply()
         store.clearAll()
         signer.value = null
+        sessionLoaded.value = false
         follows.value = emptySet()
         muted.value = emptySet()
         dmRelays.value = emptyList()
@@ -390,7 +433,8 @@ class Core(private val context: Context) {
         scope.launch {
             val own = Filter(authors = listOf(pubkey), kinds = OWN_LISTS)
             pool.query((INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays(), listOf(own), onEvent = ::ingest)
-            delay(200)
+            delay(300)
+            sessionLoaded.value = true
             // Our own zap provider, so that received zaps can be validated (NIP-57 Appendix F).
             store.latest(pubkey, Kind.METADATA)?.let(::parseProfile)?.let { profile ->
                 runCatching { lnurlInfo(profile) }.getOrNull()?.let { store.setProvider(pubkey, it.nostrPubkey, nowSeconds()) }
@@ -444,22 +488,30 @@ class Core(private val context: Context) {
 
     fun hintFor(id: String): String = store.relayOf(id)?.takeIf { it.isNotEmpty() } ?: writeRelays().firstOrNull() ?: ""
 
-    suspend fun postNote(text: String): Event {
-        val (content, tags) = prepareContent(text)
-        return publish(Draft(author(), nowSeconds(), Kind.NOTE, tags, content))
+    private fun withMedia(text: String, media: List<Upload>): Pair<String, List<List<String>>> {
+        val body = (listOf(text.trim()) + media.map { it.url }).filter { it.isNotEmpty() }.joinToString("\n")
+        return body to media.map { imetaTag(it.url, it.type, it.sha256, it.width, it.height, it.size) }
     }
 
-    suspend fun reply(parent: Event, text: String): Event {
-        val (content, extra) = prepareContent(text)
+    suspend fun postNote(text: String, media: List<Upload> = emptyList()): Event {
+        val (body, imeta) = withMedia(text, media)
+        val (content, tags) = prepareContent(body)
+        return publish(Draft(author(), nowSeconds(), Kind.NOTE, tags + imeta, content))
+    }
+
+    suspend fun reply(parent: Event, text: String, media: List<Upload> = emptyList()): Event {
+        val (body, imeta) = withMedia(text, media)
+        val (content, extra) = prepareContent(body)
         val (kind, tags) = replyTags(parent, hintFor(parent.id))
-        return publish(Draft(author(), nowSeconds(), kind, (tags + extra).distinct(), content))
+        return publish(Draft(author(), nowSeconds(), kind, (tags + extra).distinct() + imeta, content))
     }
 
-    suspend fun quote(target: Event, text: String): Event {
+    suspend fun quote(target: Event, text: String, media: List<Upload> = emptyList()): Event {
         val hint = hintFor(target.id)
         val reference = Nip19.nevent(target.id, listOf(hint).filter { it.isNotEmpty() }, target.pubkey)
-        val (content, tags) = prepareContent("$text\n\nnostr:$reference")
-        return publish(Draft(author(), nowSeconds(), Kind.NOTE, tags, content))
+        val (body, imeta) = withMedia(text, media)
+        val (content, tags) = prepareContent("$body\n\nnostr:$reference")
+        return publish(Draft(author(), nowSeconds(), Kind.NOTE, tags + imeta, content))
     }
 
     suspend fun boost(target: Event) {
@@ -474,7 +526,7 @@ class Core(private val context: Context) {
         refreshStats(listOf(target.id))
     }
 
-    suspend fun react(target: Event, content: String = "+") {
+    suspend fun react(target: Event, content: String = DEFAULT_REACTION) {
         val hint = hintFor(target.id)
         val tags = listOf(
             listOf("e", target.id, hint, target.pubkey),
@@ -483,6 +535,17 @@ class Core(private val context: Context) {
         )
         publish(Draft(author(), nowSeconds(), Kind.REACTION, tags, content))
         delay(100)
+        refreshStats(listOf(target.id))
+    }
+
+    /** NIP-09: reactions are taken back by asking relays to delete them. */
+    suspend fun unreact(target: Event) {
+        val me = author()
+        val mine = store.myReactions(target.id, me)
+        if (mine.isEmpty()) return
+        val tags = mine.map { listOf("e", it.id) } + listOf(listOf("k", Kind.REACTION.toString()))
+        publish(Draft(me, nowSeconds(), Kind.DELETION, tags, ""))
+        delay(150)
         refreshStats(listOf(target.id))
     }
 
@@ -647,8 +710,13 @@ class Core(private val context: Context) {
             val rumor = Event.parseRumor(active.nip44Decrypt(seal.content, seal.pubkey)) ?: throw IllegalStateException()
             check(rumor.pubkey == seal.pubkey)
             if (rumor.pubkey !in muted.value && (rumor.kind == Kind.DM || rumor.kind == Kind.FILE_DM)) {
-                val text = if (rumor.kind == Kind.FILE_DM) "Sent a file" else rumor.content
-                store.addDm(Dm(rumor.id, roomKey(roomOf(rumor)), rumor.pubkey, rumor.createdAt, text))
+                val file = parseFileMessage(rumor)
+                val text = when {
+                    rumor.kind == Kind.DM -> rumor.content
+                    file?.type?.startsWith("image/") == true -> "Photo"
+                    else -> "File"
+                }
+                store.addDm(Dm(rumor.id, roomKey(roomOf(rumor)), rumor.pubkey, rumor.createdAt, text, file))
                 changes.tryEmit(Unit)
             }
             store.addWrap(wrap.id)
@@ -682,7 +750,7 @@ class Core(private val context: Context) {
         return store.latest(pubkey, Kind.DM_RELAYS)?.tags?.values("relay")?.mapNotNull(::normalizeRelay).orEmpty()
     }
 
-    suspend fun sendMessage(room: Set<String>, text: String) {
+    private suspend fun deliver(room: Set<String>, kind: Int, extraTags: Tags, content: String, file: FileMessage?, preview: String) {
         val active = signer.value ?: throw UserError("Sign in first.")
         val others = room - active.pubkey
         val mine = dmRelays.value
@@ -691,8 +759,7 @@ class Core(private val context: Context) {
         targets.entries.firstOrNull { it.value.isEmpty() }?.let {
             throw UserError("${displayName(it.key)} has not set up private messages yet.")
         }
-        val tags = others.map { listOf("p", it) }
-        val rumor = Draft(active.pubkey, nowSeconds(), Kind.DM, tags, text)
+        val rumor = Draft(active.pubkey, nowSeconds(), kind, others.map { listOf("p", it) } + extraTags, content)
         val json = rumor.toJson()
         var delivered = false
         for ((recipient, relays) in targets) {
@@ -700,8 +767,39 @@ class Core(private val context: Context) {
         }
         if (!delivered) throw UserError("The message could not be delivered.")
         pool.publish(wrapFor(json, active.pubkey, active), mine.toSet())
-        store.addDm(Dm(rumor.id, roomKey(room), active.pubkey, rumor.createdAt, text))
+        store.addDm(Dm(rumor.id, roomKey(room), active.pubkey, rumor.createdAt, preview, file))
         changes.tryEmit(Unit)
+    }
+
+    suspend fun sendMessage(room: Set<String>, text: String) = deliver(room, Kind.DM, emptyList(), text, null, text)
+
+    /** NIP-17 kind 15: the file is encrypted here, and the server only ever holds ciphertext. */
+    suspend fun sendFile(room: Set<String>, data: ByteArray, type: String, width: Int, height: Int) {
+        val key = randomBytes(32)
+        val nonce = randomBytes(16)
+        val encrypted = FileCipher.encrypt(data, key, nonce)
+        val upload = media.upload(encrypted, "application/octet-stream")
+        val tags = ArrayList<List<String>>()
+        tags += listOf("file-type", type)
+        tags += listOf("encryption-algorithm", "aes-gcm")
+        tags += listOf("decryption-key", Hex.encode(key))
+        tags += listOf("decryption-nonce", Hex.encode(nonce))
+        tags += listOf("x", upload.sha256)
+        tags += listOf("ox", Hex.encode(sha256(data)))
+        tags += listOf("size", encrypted.size.toString())
+        if (width > 0 && height > 0) tags += listOf("dim", "${width}x$height")
+        val file = FileMessage(
+            upload.url, type, Hex.encode(key), Hex.encode(nonce), upload.sha256,
+            if (height > 0) width.toFloat() / height else null,
+        )
+        deliver(room, Kind.FILE_DM, tags, upload.url, file, if (type.startsWith("image/")) "Photo" else "File")
+    }
+
+    /** Downloads, checks and decrypts an attachment. The plaintext is never written to disk here. */
+    suspend fun openFile(file: FileMessage): ByteArray = withContext(Dispatchers.IO) {
+        val data = Http.bytes(file.url)
+        if (file.hash != null && Hex.encode(sha256(data)) != file.hash) throw UserError("The file failed its integrity check.")
+        FileCipher.decrypt(data, Hex.decode(file.key), Hex.decode(file.nonce))
     }
 
     suspend fun setUpMessages() = saveDmRelays(DEFAULT_DM_RELAYS)
@@ -739,6 +837,49 @@ class Core(private val context: Context) {
         root
     }
 
+    /** Who an account follows, from its kind 3 list, without keeping other people's lists in the cache. */
+    suspend fun followingOf(pubkey: String): List<String> = withContext(Dispatchers.IO) {
+        if (pubkey == me) return@withContext follows.value.toList()
+        var newest: Event? = null
+        pool.query(
+            (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + relaysOf(pubkey)?.write.orEmpty(),
+            listOf(Filter(authors = listOf(pubkey), kinds = listOf(Kind.FOLLOWS), limit = 1)),
+        ) { e, _ ->
+            synchronized(this@Core) { if ((newest?.createdAt ?: 0) < e.createdAt) newest = e }
+        }
+        newest?.tags?.values("p")?.filter(Hex::isKey)?.distinct().orEmpty()
+    }
+
+    /** NIP-45 where relays support it. No relay sees everyone, so this is a floor, not a census. */
+    suspend fun followerCount(pubkey: String): Long? = withContext(Dispatchers.IO) {
+        pool.count(
+            (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + readRelays(),
+            Filter(kinds = listOf(Kind.FOLLOWS), tags = mapOf("p" to listOf(pubkey))),
+        )
+    }
+
+    /** A sample of followers: kind 3 lists are heavy, so this runs only when someone asks to see them. */
+    suspend fun followersOf(pubkey: String): List<String> = withContext(Dispatchers.IO) {
+        val found = LinkedHashSet<String>()
+        pool.query(
+            (INDEXER_RELAYS + DEFAULT_RELAYS).toSet(),
+            listOf(Filter(kinds = listOf(Kind.FOLLOWS), tags = mapOf("p" to listOf(pubkey)), limit = 300)),
+            8_000,
+        ) { e, _ ->
+            synchronized(found) { found += e.pubkey }
+        }
+        synchronized(found) { found.toList() }
+    }
+
+    fun mediaServers(): List<String> {
+        val own = me?.let { store.latest(it, Kind.MEDIA_SERVERS) }?.tags?.values("server")?.filter { it.startsWith("https://") }
+        return own?.takeIf { it.isNotEmpty() } ?: DEFAULT_MEDIA_SERVERS
+    }
+
+    suspend fun saveMediaServers(servers: List<String>) {
+        publish(Draft(author(), nowSeconds(), Kind.MEDIA_SERVERS, servers.map { listOf("server", it) }, ""), extraRelays = INDEXER_RELAYS.toSet())
+    }
+
     fun searchRelays(): Set<String> {
         val own = me?.let { store.latest(it, Kind.SEARCH_RELAYS) }?.tags?.values("relay")?.mapNotNull(::normalizeRelay)
         return (own?.takeIf { it.isNotEmpty() } ?: DEFAULT_SEARCH_RELAYS).toSet()
@@ -750,14 +891,18 @@ class Core(private val context: Context) {
         private const val CACHE_EVENTS = 20_000
         private const val IMAGE_CACHE_BYTES = 80L * 1024 * 1024
         private const val MAX_FEED_RELAYS = 8
+
+        /** One request stays well under the frame limits relays apply. */
+        const val MAX_AUTHORS = 400
         private const val MAX_PUBLISH_RELAYS = 12
 
         val DEFAULT_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
         val INDEXER_RELAYS = listOf("wss://purplepag.es", "wss://user.kindpag.es")
         val DEFAULT_SEARCH_RELAYS = listOf("wss://relay.nostr.band", "wss://search.nos.today")
         val DEFAULT_DM_RELAYS = listOf("wss://auth.nostr1.com", "wss://relay.damus.io")
+        val DEFAULT_MEDIA_SERVERS = listOf("https://blossom.primal.net", "https://blossom.band")
 
-        val OWN_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.MUTES, Kind.RELAYS, Kind.SEARCH_RELAYS, Kind.DM_RELAYS)
+        val OWN_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.MUTES, Kind.RELAYS, Kind.SEARCH_RELAYS, Kind.DM_RELAYS, Kind.MEDIA_SERVERS)
         val STAT_KINDS = listOf(Kind.NOTE, Kind.REPOST, Kind.REACTION, Kind.COMMENT, Kind.ZAP_RECEIPT)
         val ALERT_KINDS = listOf(Kind.NOTE, Kind.COMMENT, Kind.REPOST, Kind.REACTION, Kind.ZAP_RECEIPT)
     }

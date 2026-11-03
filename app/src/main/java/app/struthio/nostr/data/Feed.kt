@@ -96,8 +96,10 @@ class Feed(private val core: Core, private val source: FeedSource) {
         }
         for ((relay, authors) in coverage) {
             if (source == FeedSource.Following && authors.isEmpty()) continue
-            val filter = filterFor(authors.takeIf { it.isNotEmpty() }, newest?.minus(3600))
-            subs += core.pool.subscribe(setOf(relay), listOf(filter), onEvent = ::receive)
+            val groups = if (authors.isEmpty()) listOf(null) else authors.chunked(Core.MAX_AUTHORS)
+            for (group in groups) {
+                subs += core.pool.subscribe(setOf(relay), listOf(filterFor(group, newest?.minus(3600))), onEvent = ::receive)
+            }
         }
         delay(2500)
     }
@@ -144,7 +146,8 @@ class Feed(private val core: Core, private val source: FeedSource) {
             if (cached.size < PAGE / 2) {
                 for ((relay, authors) in coverage) {
                     if (source == FeedSource.Following && authors.isEmpty()) continue
-                    core.pool.query(setOf(relay), listOf(filterFor(authors.takeIf { it.isNotEmpty() }, null, oldest)), 5000, ::receive)
+                    val groups = if (authors.isEmpty()) listOf(null) else authors.chunked(Core.MAX_AUTHORS)
+                    groups.forEach { group -> core.pool.query(setOf(relay), listOf(filterFor(group, null, oldest)), 5000, ::receive) }
                 }
                 flush()
             }

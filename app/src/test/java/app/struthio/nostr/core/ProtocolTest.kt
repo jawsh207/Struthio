@@ -235,6 +235,56 @@ class ProtocolTest {
         assertEquals(listOf(a to 0.25, b to 0.75), zapSplits(e))
     }
 
+    @Test
+    fun reactionsShowAsPurpleHeartByDefault() {
+        assertEquals(DEFAULT_REACTION, reactionGlyph("+"))
+        assertEquals(DEFAULT_REACTION, reactionGlyph(""))
+        assertEquals("\uD83D\uDD25", reactionGlyph("\uD83D\uDD25"))
+        assertNull(reactionGlyph("-"))
+        assertNull(reactionGlyph(":soapbox:"))
+    }
+
+    @Test
+    fun encryptedFileMessages() {
+        val key = randomBytes(32)
+        val nonce = randomBytes(16)
+        val plain = "photo bytes".toByteArray()
+        val sealed = FileCipher.encrypt(plain, key, nonce)
+        assertTrue(FileCipher.decrypt(sealed, key, nonce).contentEquals(plain))
+        val tampered = sealed.copyOf().also { it[0] = (it[0] + 1).toByte() }
+        assertTrue(runCatching { FileCipher.decrypt(tampered, key, nonce) }.isFailure)
+
+        val rumor = Draft(
+            "a".repeat(64), 1, Kind.FILE_DM,
+            listOf(
+                listOf("p", "b".repeat(64)), listOf("file-type", "image/jpeg"),
+                listOf("encryption-algorithm", "aes-gcm"), listOf("decryption-key", Hex.encode(key)),
+                listOf("decryption-nonce", Hex.encode(nonce)), listOf("x", "c".repeat(64)), listOf("dim", "400x200"),
+            ),
+            "https://blossom.example/abc",
+        )
+        val file = parseFileMessage(rumor)!!
+        assertEquals(2f, file.aspect)
+        assertEquals(file, fileFromJson(fileToJson(file)))
+        assertNull(parseFileMessage(Draft(rumor.pubkey, 1, Kind.FILE_DM, listOf(listOf("encryption-algorithm", "other")), rumor.content)))
+    }
+
+    @Test
+    fun blossomTokenIsScoped() {
+        val tags = blossomAuthTags("d".repeat(64), "cdn.example.com", 1000)
+        assertEquals("upload", tags.value("t"))
+        assertEquals("d".repeat(64), tags.value("x"))
+        assertEquals("cdn.example.com", tags.value("server"))
+        assertEquals("1300", tags.value("expiration"))
+    }
+
+    @Test
+    fun readOnlyAccountsCannotSign() {
+        val signer = ReadOnlySigner("a".repeat(64))
+        val refused = runCatching { kotlinx.coroutines.runBlocking { signer.sign(Draft(signer.pubkey, 1, Kind.NOTE, emptyList(), "x")) } }
+        assertTrue(refused.isFailure)
+    }
+
     private fun event(kind: Int, tags: Tags, content: String = "x"): Event {
         val signer = LocalSigner(Keys.generate())
         return signer.signNow(Draft(signer.pubkey, 1700000000, kind, tags, content))

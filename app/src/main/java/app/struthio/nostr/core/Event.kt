@@ -22,8 +22,10 @@ object Kind {
     const val RELAYS = 10002
     const val SEARCH_RELAYS = 10007
     const val DM_RELAYS = 10050
+    const val MEDIA_SERVERS = 10063
     const val NWC_INFO = 13194
     const val AUTH = 22242
+    const val BLOSSOM_AUTH = 24242
     const val NWC_REQUEST = 23194
     const val NWC_RESPONSE = 23195
 
@@ -246,4 +248,12 @@ class LocalSigner(private val secret: ByteArray) : Signer {
     override suspend fun sign(draft: Draft) = signNow(draft)
     override suspend fun nip44Encrypt(plaintext: String, peer: String) = Nip44.encrypt(plaintext, conversation(peer))
     override suspend fun nip44Decrypt(payload: String, peer: String, background: Boolean) = Nip44.decrypt(payload, conversation(peer))
+}
+
+/** Signed in with an npub: everything can be read, nothing can be signed. */
+class ReadOnlySigner(override val pubkey: String) : Signer {
+    private fun refuse(): Nothing = throw IllegalStateException("This account is read-only. Sign in with your private key or a signer app.")
+    override suspend fun sign(draft: Draft): Event = refuse()
+    override suspend fun nip44Encrypt(plaintext: String, peer: String): String = refuse()
+    override suspend fun nip44Decrypt(payload: String, peer: String, background: Boolean): String = refuse()
 }

@@ -6,9 +6,10 @@ A small, fast Nostr client for Android, built with Kotlin and Jetpack Compose in
 
 - Home feeds: Following (outbox model), Trending, Global and your own relays
 - Notes with comments, boosts and quotes, reactions and zaps
-- Private messages
+- Private messages, including encrypted photos and files
 - Lightning wallet through Nostr Wallet Connect
-- Notifications, search and profiles
+- Image uploads, QR scanning and emoji reactions
+- Notifications, search, profiles, and follower and following lists
 
 ## Protocol
 
@@ -28,6 +29,7 @@ Struthio implements the current form of each specification and writes no depreca
 | 25 | Reactions |
 | 40 | Expiration |
 | 42 | Relay authentication, only when a relay demands it |
+| 45 | Follower counts |
 | 47 | Nostr Wallet Connect, NIP-44 only |
 | 50 | Search |
 | 51 | Mute list, search relays |
@@ -35,16 +37,23 @@ Struthio implements the current form of each specification and writes no depreca
 | 57 | Zaps, including split tags and receipt validation |
 | 65 | Relay lists and the outbox model |
 | 92 | Media attachments |
+| B7 | Blossom uploads and media server lists |
 
 Not used on purpose: NIP-04, NIP-06, NIP-08, NIP-26, NIP-96 and relay lists inside kind 3.
 
 ## Staying small
 
-- The only third-party runtime dependency is libsecp256k1, for keys and signatures.
-- WebSocket, ChaCha20, Bech32, NIP-44, image loading, navigation and storage on the platform's SQLite are all in this repository.
+- Beyond Compose, the only third-party libraries are libsecp256k1 for keys and signatures and the ZXing core for QR codes.
+- WebSocket, ChaCha20, Bech32, NIP-44, the camera code, image loading, navigation and storage on the platform's SQLite are all in this repository.
+- Google Sans Flex is reduced to its weight axis, from 3.9 MB to 280 KB.
 - Signature checks are skipped only for events already verified in the session.
+- Photos are re-encoded before upload, which removes EXIF data such as location.
 - Sockets close when the app leaves the screen. Nothing runs in the background.
 - One APK per CPU architecture; the launcher icon is vector only.
+
+## Testing on a device
+
+`scripts/smoke.sh`, run by hand from Actions, signs in read-only with a public npub, so it publishes nothing.
 
 ## Build
 

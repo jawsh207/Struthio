@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Event
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.data.FeedSource
+import app.struthio.nostr.data.Upload
 import app.struthio.nostr.data.Feed
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,6 +73,7 @@ fun ThreadScreen(screen: Screen.Thread) {
     val notes = remember(events, rootId) { rootId?.let { ordered(events, it) }.orEmpty() }
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    val attached = remember { mutableStateListOf<Upload>() }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar("Thread")
@@ -88,11 +91,14 @@ fun ThreadScreen(screen: Screen.Thread) {
                 }
             }
             Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+              Column {
+                AttachedImages(attached) { attached.remove(it) }
                 Row(
                     Modifier.fillMaxWidth().padding(8.dp).navigationBarsPadding(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    AttachImageButton { attached += it }
                     OutlinedTextField(
                         draft,
                         { draft = it },
@@ -107,18 +113,20 @@ fun ThreadScreen(screen: Screen.Thread) {
                             sending = true
                             scope.act(nav) {
                                 try {
-                                    core.reply(target, draft.trim())
+                                    core.reply(target, draft.trim(), attached.toList())
                                     draft = ""
+                                    attached.clear()
                                 } finally {
                                     sending = false
                                 }
                             }
                         },
-                        enabled = draft.isNotBlank() && !sending,
+                        enabled = (draft.isNotBlank() || attached.isNotEmpty()) && !sending,
                     ) {
                         Icon(Icons.AutoMirrored.Rounded.Send, "Send")
                     }
                 }
+              }
             }
         }
     }
@@ -145,25 +153,27 @@ fun ComposeScreen(quoteId: String?) {
     val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    val attached = remember { mutableStateListOf<Upload>() }
     val quoted by produceState<Event?>(null, quoteId) {
         if (quoteId != null) value = core.fetchEvent(quoteId)
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar(if (quoteId == null) "New note" else "Quote note") {
+            AttachImageButton { attached += it }
             androidx.compose.material3.Button(
                 onClick = {
                     sending = true
                     scope.act(nav) {
                         try {
                             val target = quoted
-                            if (target != null) core.quote(target, text.trim()) else core.postNote(text.trim())
+                            if (target != null) core.quote(target, text.trim(), attached.toList()) else core.postNote(text.trim(), attached.toList())
                             nav.pop()
                         } finally {
                             sending = false
                         }
                     }
                 },
-                enabled = text.isNotBlank() && !sending && (quoteId == null || quoted != null),
+                enabled = (text.isNotBlank() || attached.isNotEmpty()) && !sending && (quoteId == null || quoted != null),
                 modifier = Modifier.padding(end = 8.dp),
             ) { Text(if (sending) "Posting…" else "Post") }
         }
@@ -174,6 +184,7 @@ fun ComposeScreen(quoteId: String?) {
             shape = RoundedCornerShape(24.dp),
             modifier = Modifier.fillMaxWidth().weight(1f).padding(12.dp),
         )
+        AttachedImages(attached) { attached.remove(it) }
         quoted?.let {
             Surface(
                 shape = RoundedCornerShape(20.dp),

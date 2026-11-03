@@ -301,6 +301,77 @@ fun chooseRelays(
     return chosen
 }
 
+const val DEFAULT_REACTION = "\uD83D\uDC9C"
+
+/** What a kind 7 shows: likes are a purple heart here, dislikes and custom emoji show nothing. */
+fun reactionGlyph(content: String): String? = when {
+    content == "+" || content.isEmpty() -> DEFAULT_REACTION
+    content == "-" || content.startsWith(":") -> null
+    else -> content
+}
+
+/** An encrypted file from a kind 15 rumor (NIP-17). */
+data class FileMessage(
+    val url: String,
+    val type: String,
+    val key: String,
+    val nonce: String,
+    val hash: String?,
+    val aspect: Float?,
+)
+
+fun parseFileMessage(rumor: Draft): FileMessage? {
+    if (rumor.kind != Kind.FILE_DM) return null
+    if (rumor.tags.value("encryption-algorithm") != "aes-gcm") return null
+    val dim = rumor.tags.value("dim")?.split('x')?.mapNotNull { it.toFloatOrNull() }
+    return FileMessage(
+        rumor.content.trim().takeIf { it.startsWith("https://") } ?: return null,
+        rumor.tags.value("file-type") ?: "application/octet-stream",
+        rumor.tags.value("decryption-key") ?: return null,
+        rumor.tags.value("decryption-nonce") ?: return null,
+        rumor.tags.value("x"),
+        dim?.takeIf { it.size == 2 && it[1] > 0f }?.let { it[0] / it[1] },
+    )
+}
+
+fun fileToJson(file: FileMessage): String = JSONObject()
+    .put("url", file.url).put("type", file.type).put("key", file.key).put("nonce", file.nonce)
+    .put("hash", file.hash ?: "").put("aspect", (file.aspect ?: 0f).toDouble()).toString()
+
+fun fileFromJson(json: String): FileMessage? = runCatching {
+    val o = JSONObject(json)
+    FileMessage(
+        o.getString("url"), o.getString("type"), o.getString("key"), o.getString("nonce"),
+        o.optString("hash").takeIf { it.isNotEmpty() }, o.optDouble("aspect", 0.0).toFloat().takeIf { it > 0f },
+    )
+}.getOrNull()
+
+/** AES-GCM for kind 15 attachments; the tag sits at the end of the ciphertext. */
+object FileCipher {
+    private fun cipher(mode: Int, key: ByteArray, nonce: ByteArray) =
+        javax.crypto.Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(mode, javax.crypto.spec.SecretKeySpec(key, "AES"), javax.crypto.spec.GCMParameterSpec(128, nonce))
+        }
+
+    fun encrypt(plain: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray =
+        cipher(javax.crypto.Cipher.ENCRYPT_MODE, key, nonce).doFinal(plain)
+
+    fun decrypt(data: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray =
+        cipher(javax.crypto.Cipher.DECRYPT_MODE, key, nonce).doFinal(data)
+}
+
+/** BUD-11 authorization for one upload, scoped to the blob and the server. */
+fun blossomAuthTags(sha256: String, serverHost: String, now: Long): Tags = listOf(
+    listOf("t", "upload"),
+    listOf("x", sha256),
+    listOf("server", serverHost),
+    listOf("expiration", (now + 300).toString()),
+)
+
+/** NIP-92 attachment metadata for an uploaded image. */
+fun imetaTag(url: String, mime: String, sha256: String, width: Int, height: Int, size: Int): List<String> =
+    listOf("imeta", "url $url", "m $mime", "x $sha256", "dim ${width}x$height", "size $size")
+
 fun roomOf(rumor: Draft): Set<String> = (rumor.tags.values("p") + rumor.pubkey).toSet()
 
 fun jsonStrings(values: Collection<String>): JSONArray = JSONArray().also { a -> values.forEach { a.put(it) } }

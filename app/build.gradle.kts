@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.coroutines.android)
     implementation(libs.secp256k1.android)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
     testImplementation(libs.json)

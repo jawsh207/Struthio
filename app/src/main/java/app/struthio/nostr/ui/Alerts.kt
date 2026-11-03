@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.nowSeconds
+import app.struthio.nostr.core.reactionGlyph
 import app.struthio.nostr.core.value
 import app.struthio.nostr.core.values
 import app.struthio.nostr.data.Alert
@@ -62,7 +63,7 @@ private fun AlertRow(alert: Alert, shape: Shape) {
     val e = alert.event
     val name = core.displayName(alert.actor)
     val (icon, headline, detail) = when (e.kind) {
-        Kind.REACTION -> Triple(Icons.Rounded.Favorite, "$name reacted to your note", e.content.takeIf { it != "+" }.orEmpty())
+        Kind.REACTION -> Triple(Icons.Rounded.Favorite, "$name reacted ${reactionGlyph(e.content).orEmpty()}", "")
         Kind.REPOST, Kind.GENERIC_REPOST -> Triple(Icons.Rounded.Repeat, "$name boosted your note", "")
         Kind.ZAP_RECEIPT -> Triple(Icons.Rounded.Bolt, "$name zapped ${compact(alert.msats / 1000)} sats", alert.comment)
         else -> Triple(Icons.Outlined.ChatBubbleOutline, "$name replied or mentioned you", e.content)

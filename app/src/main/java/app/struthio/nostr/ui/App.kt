@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 sealed interface Screen {
     data class Thread(val id: String, val relays: List<String> = emptyList(), val author: String? = null) : Screen
     data class Profile(val pubkey: String) : Screen
+    data class People(val pubkey: String, val followers: Boolean) : Screen
     data class Hashtag(val tag: String) : Screen
     data class Compose(val quote: String? = null) : Screen
     data class Chat(val room: String) : Screen
@@ -163,6 +164,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                     }
                     is Screen.Thread -> ThreadScreen(top)
                     is Screen.Profile -> ProfileScreen(top.pubkey)
+                    is Screen.People -> PeopleScreen(top)
                     is Screen.Hashtag -> HashtagScreen(top.tag)
                     is Screen.Compose -> ComposeScreen(top.quote)
                     is Screen.Chat -> ChatScreen(top.room)

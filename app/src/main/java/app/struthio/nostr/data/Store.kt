@@ -6,11 +6,15 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import app.struthio.nostr.core.Event
+import app.struthio.nostr.core.FileMessage
 import app.struthio.nostr.core.Hex
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Zap
+import app.struthio.nostr.core.fileFromJson
+import app.struthio.nostr.core.fileToJson
 import app.struthio.nostr.core.parseTags
 import app.struthio.nostr.core.parseZapReceipt
+import app.struthio.nostr.core.reactionGlyph
 import app.struthio.nostr.core.tagsToJson
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.core.value
@@ -18,6 +22,8 @@ import app.struthio.nostr.core.values
 import org.json.JSONArray
 
 data class Stats(
+    val top: List<String> = emptyList(),
+    val mine: String? = null,
     val comments: Int = 0,
     val boosts: Int = 0,
     val reactions: Int = 0,
@@ -27,14 +33,21 @@ data class Stats(
     val mineZapped: Boolean = false,
 )
 
-data class Dm(val id: String, val room: String, val sender: String, val createdAt: Long, val content: String)
+data class Dm(
+    val id: String,
+    val room: String,
+    val sender: String,
+    val createdAt: Long,
+    val content: String,
+    val file: FileMessage? = null,
+)
 
 data class Room(val key: String, val members: List<String>, val last: Dm)
 
 data class Alert(val event: Event, val actor: String, val msats: Long, val comment: String)
 
 /** Local cache on the platform's SQLite: the first thing every screen shows. */
-class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1) {
+class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 2) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
@@ -64,14 +77,16 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1
         db.execSQL(
             """CREATE TABLE dms(
                 id TEXT PRIMARY KEY, room TEXT NOT NULL, sender TEXT NOT NULL,
-                created_at INTEGER NOT NULL, content TEXT NOT NULL)""",
+                created_at INTEGER NOT NULL, content TEXT NOT NULL, file TEXT)""",
         )
         db.execSQL("CREATE INDEX dms_room ON dms(room, created_at DESC)")
         db.execSQL("CREATE TABLE wraps(id TEXT PRIMARY KEY)")
         db.execSQL("CREATE TABLE follows(pubkey TEXT PRIMARY KEY)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL("ALTER TABLE dms ADD COLUMN file TEXT")
+    }
 
     /** Stores a batch and returns what is new. */
     fun insert(batch: List<Pair<Event, String>>): List<Event> {
@@ -168,6 +183,11 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1
 
     private fun Cursor.event() = Event(
         getString(0), getString(1), getLong(2), getInt(3), parseTags(JSONArray(getString(4))), getString(5), getString(6),
+    )
+
+    private fun Cursor.dm() = Dm(
+        getString(0), getString(1), getString(2), getLong(3), getString(4),
+        if (isNull(5)) null else fileFromJson(getString(5)),
     )
 
     private inline fun events(sql: String, args: Array<String> = emptyArray(), block: (Event) -> Unit = {}): List<Event> {
@@ -268,6 +288,24 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1
                 }
             }
         }
+        val glyphs = HashMap<String, HashMap<String, Int>>()
+        readableDatabase.rawQuery(
+            """SELECT r.value, e.content, COUNT(DISTINCT e.pubkey), MAX(e.pubkey=?)
+               FROM refs r JOIN events e ON e.id=r.id
+               WHERE r.value IN ($marks) AND r.name='e' AND e.kind=7 GROUP BY r.value, e.content""",
+            arrayOf(who) + ids,
+        ).use {
+            while (it.moveToNext()) {
+                val id = it.getString(0)
+                val glyph = reactionGlyph(it.getString(1)) ?: continue
+                val counts = glyphs.getOrPut(id) { HashMap() }
+                counts[glyph] = (counts[glyph] ?: 0) + it.getInt(2)
+                if (it.getInt(3) == 1) out[id] = out.getValue(id).copy(mine = glyph)
+            }
+        }
+        glyphs.forEach { (id, counts) ->
+            out[id] = out.getValue(id).copy(top = counts.entries.sortedByDescending { it.value }.take(3).map { it.key })
+        }
         readableDatabase.rawQuery(
             """SELECT z.target, SUM(z.msats), MAX(z.sender=?) FROM zaps z JOIN providers p
                ON p.pubkey=z.recipient AND p.nostr_pubkey=z.provider
@@ -338,6 +376,13 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1
             arrayOf(me, me, since.toString()),
         ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
 
+    /** Our own reaction events on a note, so that a second tap can take them back. */
+    fun myReactions(target: String, me: String): List<Event> = events(
+        """SELECT $COLUMNS FROM events WHERE kind=7 AND pubkey=? AND id IN
+           (SELECT id FROM refs WHERE name='e' AND value=?)""",
+        arrayOf(me, target),
+    )
+
     fun hasWrap(id: String): Boolean =
         readableDatabase.rawQuery("SELECT 1 FROM wraps WHERE id=?", arrayOf(id)).use { it.moveToFirst() }
 
@@ -352,6 +397,7 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1
             put("sender", dm.sender)
             put("created_at", dm.createdAt)
             put("content", dm.content)
+            put("file", dm.file?.let(::fileToJson))
         }
         writableDatabase.insertWithOnConflict("dms", null, values, SQLiteDatabase.CONFLICT_IGNORE)
     }
@@ -359,13 +405,13 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1
     fun rooms(me: String): List<Room> {
         val out = ArrayList<Room>()
         readableDatabase.rawQuery(
-            """SELECT d.id, d.room, d.sender, d.created_at, d.content FROM dms d
+            """SELECT d.id, d.room, d.sender, d.created_at, d.content, d.file FROM dms d
                JOIN (SELECT room, MAX(created_at) AS t FROM dms GROUP BY room) m
                ON m.room=d.room AND m.t=d.created_at GROUP BY d.room ORDER BY d.created_at DESC""",
             null,
         ).use {
             while (it.moveToNext()) {
-                val dm = Dm(it.getString(0), it.getString(1), it.getString(2), it.getLong(3), it.getString(4))
+                val dm = it.dm()
                 out += Room(dm.room, dm.room.split(',').filter { p -> p != me }, dm)
             }
         }
@@ -375,10 +421,10 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 1
     fun messages(room: String, limit: Int): List<Dm> {
         val out = ArrayList<Dm>()
         readableDatabase.rawQuery(
-            "SELECT id, room, sender, created_at, content FROM dms WHERE room=? ORDER BY created_at DESC LIMIT ?",
+            "SELECT id, room, sender, created_at, content, file FROM dms WHERE room=? ORDER BY created_at DESC LIMIT ?",
             arrayOf(room, limit.toString()),
         ).use {
-            while (it.moveToNext()) out += Dm(it.getString(0), it.getString(1), it.getString(2), it.getLong(3), it.getString(4))
+            while (it.moveToNext()) out += it.dm()
         }
         return out
     }

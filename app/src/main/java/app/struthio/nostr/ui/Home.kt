@@ -62,7 +62,14 @@ fun HomeScreen() {
     val core = LocalCore.current
     val nav = LocalNav.current
     val follows by core.follows.collectAsState()
-    var selected by rememberSaveable { mutableIntStateOf(if (follows.isEmpty()) 1 else 0) }
+    val sessionLoaded by core.sessionLoaded.collectAsState()
+    var selected by rememberSaveable { mutableIntStateOf(0) }
+    var picked by rememberSaveable { mutableStateOf(false) }
+    // Only a confirmed empty follow list moves the feed away from Following.
+    LaunchedEffect(sessionLoaded, follows.isEmpty()) {
+        if (sessionLoaded && follows.isEmpty() && !picked) selected = 1
+        if (follows.isNotEmpty() && !picked) selected = 0
+    }
     val feeds = remember { HashMap<Int, Feed>() }
     val feed = feeds.getOrPut(selected) { Feed(core, SOURCES[selected].second) }
     DisposableEffect(feed) {
@@ -70,14 +77,17 @@ fun HomeScreen() {
         onDispose { feed.stop() }
     }
     if (selected == 0) {
-        LaunchedEffect(follows.size) { if (follows.isNotEmpty()) feed.refresh() }
+        LaunchedEffect(follows) { if (follows.isNotEmpty()) feed.refresh() }
     }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SearchPill(onSearch = { nav.push(Screen.Search) }, onSettings = { nav.push(Screen.Settings) })
-                FeedSelector(selected) { selected = it }
+                FeedSelector(selected) {
+                    picked = true
+                    selected = it
+                }
             }
             NoteList(feed, Modifier.weight(1f), empty = if (selected == 0) "Follow people to fill this feed. Trending and Global work right away." else "Nothing here yet.")
         }

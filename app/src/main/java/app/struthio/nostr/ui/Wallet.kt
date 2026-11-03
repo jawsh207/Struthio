@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -137,7 +138,14 @@ private fun ConnectWallet() {
                 "Paste a Nostr Wallet Connect link from your wallet. Your funds stay there; Struthio only asks it to pay or create invoices.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            OutlinedTextField(uri, { uri = it }, label = { Text("nostr+walletconnect://…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                uri,
+                { uri = it },
+                label = { Text("nostr+walletconnect://…") },
+                singleLine = true,
+                trailingIcon = { ScanButton { uri = it } },
+                modifier = Modifier.fillMaxWidth(),
+            )
             Button(
                 onClick = {
                     busy = true
@@ -166,7 +174,13 @@ private fun SendSheet(onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Send", style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(target, { target = it }, label = { Text("Invoice or Lightning address") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                target,
+                { target = it },
+                label = { Text("Invoice or Lightning address") },
+                trailingIcon = { ScanButton { target = it.removePrefix("lightning:") } },
+                modifier = Modifier.fillMaxWidth(),
+            )
             if (target.contains('@')) {
                 OutlinedTextField(
                     amount,
@@ -224,7 +238,9 @@ private fun ReceiveSheet(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Create invoice") }
             } else {
-                Text(ready, style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    QrImage(ready.uppercase())
+                }
                 Row {
                     Button({
                         context.copy(ready)

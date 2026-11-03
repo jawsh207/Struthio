@@ -29,14 +29,17 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -79,6 +82,9 @@ fun ProfileScreen(pubkey: String) {
     var menu by remember { mutableStateOf(false) }
     var zapping by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var showQr by remember { mutableStateOf(false) }
+    val followingList by produceState<List<String>?>(null, pubkey, follows) { value = core.followingOf(pubkey) }
+    val followerCount by produceState<Long?>(null, pubkey) { value = core.followerCount(pubkey) }
 
     Column(Modifier.fillMaxSize()) {
         BackBar(core.displayName(pubkey)) {
@@ -87,6 +93,10 @@ fun ProfileScreen(pubkey: String) {
                 DropdownMenuItem(text = { Text("Copy npub") }, onClick = {
                     menu = false
                     context.copy(Nip19.npub(pubkey))
+                })
+                DropdownMenuItem(text = { Text("Show QR code") }, onClick = {
+                    menu = false
+                    showQr = true
                 })
                 if (!isMe) {
                     val isMuted = pubkey in muted
@@ -112,6 +122,14 @@ fun ProfileScreen(pubkey: String) {
                     }
                 }
                 profile?.about?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton({ nav.push(Screen.People(pubkey, followers = false)) }) {
+                        Text("${followingList?.size?.toLong()?.let(::compact) ?: "–"} following")
+                    }
+                    TextButton({ nav.push(Screen.People(pubkey, followers = true)) }) {
+                        Text(followerCount?.let { "${compact(it)} followers" } ?: "Followers")
+                    }
+                }
                 if (!isMe) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         val following = pubkey in follows
@@ -141,6 +159,35 @@ fun ProfileScreen(pubkey: String) {
         })
     }
     if (zapping) ZapSheet(null, pubkey) { zapping = false }
+    if (showQr) {
+        ModalBottomSheet(onDismissRequest = { showQr = false }) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                QrImage("nostr:" + Nip19.npub(pubkey))
+            }
+        }
+    }
+}
+
+@Composable
+fun PeopleScreen(screen: Screen.People) {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val people by produceState<List<String>?>(null, screen) {
+        value = if (screen.followers) core.followersOf(screen.pubkey) else core.followingOf(screen.pubkey)
+    }
+    Column(Modifier.fillMaxSize()) {
+        BackBar(if (screen.followers) "Followers" else "Following")
+        val list = people
+        when {
+            list == null -> Loading(Modifier.fillMaxWidth().padding(48.dp))
+            list.isEmpty() -> Text("Nobody found on these relays.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                itemsIndexed(list, key = { _, it -> it }) { index, pubkey ->
+                    PersonRow(core, pubkey, segmentShape(index, list.size)) { nav.push(Screen.Profile(pubkey)) }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -187,7 +234,15 @@ fun SearchScreen() {
             { query = it },
             placeholder = { Text("Notes, people, #tags, npub") },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = { IconButton(onClick = ::submit) { Icon(Icons.Rounded.Search, "Search") } },
+            trailingIcon = {
+                Row {
+                    ScanButton {
+                        query = it.removePrefix("nostr:")
+                        submit()
+                    }
+                    IconButton(onClick = ::submit) { Icon(Icons.Rounded.Search, "Search") }
+                }
+            },
             singleLine = true,
             shape = RoundedCornerShape(28.dp),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
