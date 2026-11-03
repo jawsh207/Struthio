@@ -1,0 +1,28 @@
+[versions]
+agp = "9.1.1"
+kotlin = "2.2.10"
+activityCompose = "1.10.1"
+composeBom = "2026.09.00"
+# Material 3 1.5 (beta): MaterialExpressiveTheme, ShortNavigationBar, MaterialShapes.
+material3 = "1.5.0-beta01"
+materialIcons = "1.7.8"
+coroutines = "1.10.2"
+secp256k1 = "0.24.0"
+junit = "4.13.2"
+json = "20250517"
+
+[libraries]
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "materialIcons" }
+coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+secp256k1-android = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-android", version.ref = "secp256k1" }
+secp256k1-jvm = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-jvm", version.ref = "secp256k1" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+json = { group = "org.json", name = "json", version.ref = "json" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
