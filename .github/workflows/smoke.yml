@@ -1,9 +1,8 @@
 name: Device smoke test
 
+# Run by hand only: this creates a real account and publishes it to public relays.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   smoke:

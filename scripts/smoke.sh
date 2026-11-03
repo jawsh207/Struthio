@@ -73,20 +73,5 @@ adb shell dumpsys meminfo "$PKG" | grep -E "TOTAL PSS|TOTAL RSS" > smoke/memory.
 adb shell am force-stop "$PKG"
 adb shell am start -W -n "$PKG/.MainActivity" | tee smoke/startup.txt
 cat smoke/memory.txt
-python3 -m pip install --quiet pillow
-python3 - <<'PY'
-import base64,glob,io
-from PIL import Image
-files=sorted(glob.glob('smoke/0*.png'))
-w,h=300,660
-sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
-for i,f in enumerate(files[:10]):
-    sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))
-out=io.BytesIO(); sheet.save(out,'JPEG',quality=62)
-data=base64.b64encode(out.getvalue()).decode()
-print('SHEET-BEGIN')
-for i in range(0,len(data),3000): print('SHEET:'+data[i:i+3000])
-print('SHEET-END')
-PY
 grep -E "E AndroidRuntime|W System.err" smoke/logcat.txt | head -20
 echo "Smoke test passed"
