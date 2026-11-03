@@ -89,6 +89,17 @@ tap_text "Account check"
 sleep 12
 adb exec-out screencap -p > smoke/09-check.png
 adb shell input keyevent 4
+sleep 2
+adb exec-out screencap -p > smoke/09x-settings.png
+tap_text "View profile"
+sleep 6
+adb exec-out screencap -p > smoke/09y-own-profile.png
+tap_text "Edit profile"
+sleep 3
+adb exec-out screencap -p > smoke/09z-edit.png
+adb shell input keyevent 4
+sleep 1
+adb shell input keyevent 4
 sleep 1
 adb shell input keyevent 4
 sleep 1
@@ -113,8 +124,9 @@ import base64,glob,io
 from PIL import Image
 files=sorted(glob.glob('smoke/0*.png'))
 w,h=300,660
+files=files[-5:]
 sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
-for i,f in enumerate(files[:10]):
+for i,f in enumerate(files):
     sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))
 out=io.BytesIO(); sheet.save(out,'JPEG',quality=62)
 data=base64.b64encode(out.getvalue()).decode()

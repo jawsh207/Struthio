@@ -130,7 +130,9 @@ fun ProfileScreen(pubkey: String) {
                         Text(followerCount?.let { "${compact(it)} followers" } ?: "Followers")
                     }
                 }
-                if (!isMe) {
+                if (isMe) {
+                    FilledTonalButton({ nav.push(Screen.EditProfile) }, Modifier.fillMaxWidth()) { Text("Edit profile") }
+                } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         val following = pubkey in follows
                         val click = {

@@ -75,14 +75,7 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val me = core.me ?: return
-    val current = remember { runCatching { JSONObject(core.profiles[me]?.raw ?: "{}") }.getOrDefault(JSONObject()) }
-    var name by remember { mutableStateOf(current.optString("name")) }
-    var displayName by remember { mutableStateOf(current.optString("display_name")) }
-    var about by remember { mutableStateOf(current.optString("about")) }
-    var picture by remember { mutableStateOf(current.optString("picture")) }
-    var nip05 by remember { mutableStateOf(current.optString("nip05")) }
-    var lud16 by remember { mutableStateOf(current.optString("lud16")) }
-    var saving by remember { mutableStateOf(false) }
+    var copying by remember { mutableStateOf(false) }
     var servers by remember { mutableStateOf(core.mediaServers().joinToString("\n")) }
     var revealed by remember { mutableStateOf<String?>(null) }
     var confirmReveal by remember { mutableStateOf(false) }
@@ -94,55 +87,6 @@ fun SettingsScreen() {
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Section("Relays") {
-                Text("Choose where your notes go and where people can reach you.", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton({ nav.push(Screen.Relays) }) { Text("Manage relays") }
-                    OutlinedButton({ nav.push(Screen.AccountCheck) }) { Text("Account check") }
-                }
-            }
-            Section("Profile") {
-                OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(name, { name = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(about, { about = it }, label = { Text("About") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(picture, { picture = it }, label = { Text("Picture URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(nip05, { nip05 = it }, label = { Text("Nostr address (NIP-05)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(lud16, { lud16 = it }, label = { Text("Lightning address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Button(
-                    onClick = {
-                        saving = true
-                        scope.act(nav) {
-                            try {
-                                core.saveProfile(
-                                    mapOf(
-                                        "name" to name, "display_name" to displayName, "about" to about,
-                                        "picture" to picture, "nip05" to nip05, "lud16" to lud16,
-                                    ),
-                                )
-                                nav.say("Profile saved")
-                            } finally {
-                                saving = false
-                            }
-                        }
-                    },
-                    enabled = !saving,
-                ) { Text(if (saving) "Saving…" else "Save profile") }
-            }
-            Section("Media servers") {
-                Text("Images and files you send are stored here. One server per line.", style = MaterialTheme.typography.bodyMedium)
-                OutlinedTextField(servers, { servers = it }, modifier = Modifier.fillMaxWidth())
-                FilledTonalButton({
-                    val list = servers.lines().map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
-                    if (list.isEmpty()) {
-                        nav.say("Servers start with https://")
-                    } else {
-                        scope.act(nav) {
-                            core.saveMediaServers(list)
-                            nav.say("Media servers saved")
-                        }
-                    }
-                }) { Text("Save servers") }
-            }
             Section("Account") {
                 val npub = Nip19.npub(me)
                 Text(npub, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -165,6 +109,42 @@ fun SettingsScreen() {
                     }
                 }
                 TextButton({ confirmSignOut = true }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+            }
+            Section("Relays") {
+                Text("Choose where your notes go and where people can reach you.", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton({ nav.push(Screen.Relays) }) { Text("Manage relays") }
+                    OutlinedButton({ nav.push(Screen.AccountCheck) }) { Text("Account check") }
+                }
+                Text("Help other apps and people find you by copying your lists to popular relays.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedButton(
+                    onClick = {
+                        copying = true
+                        scope.act(nav) {
+                            try {
+                                nav.say(core.copyListsToPopularRelays())
+                            } finally {
+                                copying = false
+                            }
+                        }
+                    },
+                    enabled = !copying,
+                ) { Text(if (copying) "Copying…" else "Copy my lists to popular relays") }
+            }
+            Section("Media servers") {
+                Text("Images and files you send are stored here. One server per line.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(servers, { servers = it }, modifier = Modifier.fillMaxWidth())
+                FilledTonalButton({
+                    val list = servers.lines().map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
+                    if (list.isEmpty()) {
+                        nav.say("Servers start with https://")
+                    } else {
+                        scope.act(nav) {
+                            core.saveMediaServers(list)
+                            nav.say("Media servers saved")
+                        }
+                    }
+                }) { Text("Save servers") }
             }
             Text(
                 "Struthio",
@@ -204,6 +184,57 @@ fun SettingsScreen() {
             },
             dismissButton = { TextButton({ confirmSignOut = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+fun EditProfileScreen() {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val scope = rememberCoroutineScope()
+    val me = core.me ?: return
+    val current = remember { runCatching { JSONObject(core.profiles[me]?.raw ?: "{}") }.getOrDefault(JSONObject()) }
+    var name by remember { mutableStateOf(current.optString("name")) }
+    var displayName by remember { mutableStateOf(current.optString("display_name")) }
+    var about by remember { mutableStateOf(current.optString("about")) }
+    var picture by remember { mutableStateOf(current.optString("picture")) }
+    var nip05 by remember { mutableStateOf(current.optString("nip05")) }
+    var lud16 by remember { mutableStateOf(current.optString("lud16")) }
+    var saving by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize().imePadding()) {
+        BackBar("Edit profile")
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+                OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(about, { about = it }, label = { Text("About") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(picture, { picture = it }, label = { Text("Picture URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(nip05, { nip05 = it }, label = { Text("Nostr address (NIP-05)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(lud16, { lud16 = it }, label = { Text("Lightning address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(
+                    onClick = {
+                        saving = true
+                        scope.act(nav) {
+                            try {
+                                core.saveProfile(
+                                    mapOf(
+                                        "name" to name, "display_name" to displayName, "about" to about,
+                                        "picture" to picture, "nip05" to nip05, "lud16" to lud16,
+                                    ),
+                                )
+                                nav.say("Profile saved")
+                                nav.pop()
+                            } finally {
+                                saving = false
+                            }
+                        }
+                    },
+                    enabled = !saving,
+                ) { Text(if (saving) "Saving…" else "Save profile") }
+        }
     }
 }
 

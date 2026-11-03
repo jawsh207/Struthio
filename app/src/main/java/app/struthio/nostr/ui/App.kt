@@ -57,6 +57,7 @@ sealed interface Screen {
     data object Settings : Screen
     data object Relays : Screen
     data object AccountCheck : Screen
+    data object EditProfile : Screen
 }
 
 class Nav(private val scope: CoroutineScope, private val snackbar: SnackbarHostState) {
@@ -173,6 +174,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                     Screen.Settings -> SettingsScreen()
                     Screen.Relays -> RelaysScreen()
                     Screen.AccountCheck -> AccountCheckScreen()
+                    Screen.EditProfile -> EditProfileScreen()
                 }
             }
         }

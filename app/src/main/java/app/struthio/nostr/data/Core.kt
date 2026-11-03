@@ -893,6 +893,34 @@ class Core(private val context: Context) {
         synchronized(found) { found.toList() }
     }
 
+    /**
+     * Republishes the account's newest lists exactly as they were signed, so no signer is involved.
+     * The mute list stays where it is: nobody needs it to find this account.
+     */
+    suspend fun copyListsToPopularRelays(): String = withContext(Dispatchers.IO) {
+        val pubkey = author()
+        if (signer.value is ReadOnlySigner) throw UserError("This account is read-only.")
+        val own = writeRelays() + readRelays()
+        val answered = pool.query(
+            own + INDEXER_RELAYS + DEFAULT_RELAYS,
+            listOf(Filter(authors = listOf(pubkey), kinds = PUBLIC_LISTS)),
+            8_000,
+            onEvent = ::ingest,
+        )
+        // Copying is only useful with the newest versions, and those are on the account's relays.
+        if (answered.none { it in own }) throw UserError("Could not reach your relays. Try again.")
+        delay(400)
+        val lists = PUBLIC_LISTS.mapNotNull { store.latest(pubkey, it) }
+        if (lists.isEmpty()) throw UserError("No lists were found to copy.")
+        val targets = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet()
+        val reached = HashSet<String>()
+        for (list in lists) {
+            pool.publish(list, targets).filterValues { it.ok }.keys.let(reached::addAll)
+        }
+        if (reached.isEmpty()) throw UserError("No relay accepted your lists.")
+        "Copied ${lists.size} lists to ${reached.size} of ${targets.size} relays"
+    }
+
     /** Asks every relevant relay what it holds for this account. The report has public data only. */
     suspend fun accountCheck(): String = withContext(Dispatchers.IO) {
         val pubkey = me ?: return@withContext "Not signed in."
@@ -979,6 +1007,7 @@ class Core(private val context: Context) {
         val DEFAULT_MEDIA_SERVERS = listOf("https://blossom.primal.net", "https://blossom.band")
 
         val OWN_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.MUTES, Kind.RELAYS, Kind.SEARCH_RELAYS, Kind.DM_RELAYS, Kind.MEDIA_SERVERS)
+        val PUBLIC_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.RELAYS, Kind.DM_RELAYS, Kind.MEDIA_SERVERS)
         val STAT_KINDS = listOf(Kind.NOTE, Kind.REPOST, Kind.REACTION, Kind.COMMENT, Kind.ZAP_RECEIPT)
         val ALERT_KINDS = listOf(Kind.NOTE, Kind.COMMENT, Kind.REPOST, Kind.REACTION, Kind.ZAP_RECEIPT)
     }
