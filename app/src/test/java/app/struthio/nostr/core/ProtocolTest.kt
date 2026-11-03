@@ -300,6 +300,16 @@ class ProtocolTest {
     }
 
     @Test
+    fun commonVideoFormatsAreRecognized() {
+        val base = "https://a.example/v"
+        val urls = listOf("$base.MP4", "$base.mkv", "$base.mov?x=1", "$base.m3u8", "$base.avi", "$base.webm#t=5", "$base.3gp", "$base.mpd")
+        assertEquals(urls, noteVideos(event(Kind.NOTE, emptyList(), urls.joinToString(" "))))
+        assertTrue(noteVideos(event(Kind.NOTE, emptyList(), "https://a.example/watch https://a.example/photo.png")).isEmpty())
+        val hls = event(Kind.NOTE, listOf(listOf("imeta", "url https://a.example/live", "m application/vnd.apple.mpegurl")), "https://a.example/live")
+        assertEquals(listOf("https://a.example/live"), noteVideos(hls))
+    }
+
+    @Test
     fun linkCardsReadOpenGraph() {
         val html = """<html><head><title>Fallback</title><meta property="og:title" content="Real title">
             <meta content="A summary" property='og:description'><meta property="og:image" content="https://a.example/i.png"></head>"""

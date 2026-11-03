@@ -226,20 +226,27 @@ class Core(private val context: Context) {
     /** NIP-05: only a matching pubkey at the domain earns the check mark. Redirects are not followed. */
     private fun verifyNip05(profile: Profile) {
         val address = profile.nip05 ?: return
-        val at = address.lastIndexOf('@').takeIf { it > 0 } ?: return
         synchronized(nip05Checked) { if (!nip05Checked.add(profile.pubkey + address)) return }
         scope.launch {
-            val name = address.substring(0, at).lowercase()
-            val domain = address.substring(at + 1)
-            val ok = runCatching {
-                val url = "https://$domain/.well-known/nostr.json?name=${URLEncoder.encode(name, "UTF-8")}"
-                Http.json(url, followRedirects = false).getJSONObject("names").optString(name) == profile.pubkey
-            }.getOrDefault(false)
-            if (ok) {
+            if (nip05Matches(profile)) {
                 main.post { profiles[profile.pubkey]?.let { profiles[profile.pubkey] = it.copy(verified = true) } }
             }
         }
     }
+
+    private fun nip05Matches(profile: Profile): Boolean {
+        val address = profile.nip05 ?: return false
+        val at = address.lastIndexOf('@').takeIf { it > 0 } ?: return false
+        val name = address.substring(0, at).lowercase()
+        val domain = address.substring(at + 1)
+        return runCatching {
+            val url = "https://$domain/.well-known/nostr.json?name=${URLEncoder.encode(name, "UTF-8")}"
+            Http.json(url, followRedirects = false).getJSONObject("names").optString(name) == profile.pubkey
+        }.getOrDefault(false)
+    }
+
+    /** "_@example.com" is the NIP-05 way of saying "example.com". */
+    private fun handleOf(profile: Profile) = profile.nip05?.removePrefix("_@")
 
     private fun parseProfile(e: Event): Profile {
         val o = runCatching { JSONObject(e.content) }.getOrDefault(JSONObject())
@@ -256,8 +263,15 @@ class Core(private val context: Context) {
         )
     }
 
-    fun displayName(pubkey: String): String =
-        profiles[pubkey]?.name?.takeIf { it.isNotEmpty() } ?: Nip19.npub(pubkey).let { it.take(10) + "…" + it.takeLast(4) }
+    /** Name, then a verified NIP-05 address, then a short npub. Unverified addresses prove nothing. */
+    fun displayName(pubkey: String): String {
+        val profile = profiles[pubkey]
+        return profile?.name?.takeIf { it.isNotEmpty() }
+            ?: profile?.takeIf { it.verified }?.let(::handleOf)
+            ?: shortNpub(pubkey)
+    }
+
+    private fun shortNpub(pubkey: String) = Nip19.npub(pubkey).let { it.take(10) + "…" + it.takeLast(4) }
 
     /** Asks for a profile; cards call this as they appear, and requests are grouped. */
     fun wantProfile(pubkey: String) {
@@ -1116,18 +1130,35 @@ class Core(private val context: Context) {
             }
             delay(500)
             val alerts = store.alerts(pubkey, muted.value, 30).filter { it.event.createdAt > since }
-            alerts.map { it.actor }.distinct().let { actors ->
-                actors.filter { !profiles.containsKey(it) }.takeIf { it.isNotEmpty() }?.let { missing ->
-                    store.latestOfKind(missing, Kind.METADATA).forEach { publishProfile(parseProfile(it)) }
-                }
-            }
-            delay(100)
+            val names = notificationNames(alerts.map { it.actor }.distinct(), checker)
             android.util.Log.i("Struthio", "check: ${alerts.size} alerts, $messages messages, ${answered.size} relays")
-            Notifier.post(context, alerts, messages, ::displayName)
+            Notifier.post(context, alerts, messages) { names[it] ?: shortNpub(it) }
             if (answered.isNotEmpty()) prefs.edit().putLong("notify_since", now).apply()
         } finally {
             checker.shutdown()
         }
+    }
+
+    /** Names for a notification, fetched here because nothing on screen has asked for them. */
+    private suspend fun notificationNames(actors: List<String>, checker: RelayPool): Map<String, String> {
+        val wanted = actors.take(MAX_NOTIFIED_NAMES)
+        val known = store.latestOfKind(wanted, Kind.METADATA).map { it.pubkey }.toSet()
+        val missing = wanted - known
+        if (missing.isNotEmpty()) {
+            checker.query(
+                (INDEXER_RELAYS + DEFAULT_RELAYS).toSet(),
+                listOf(Filter(authors = missing, kinds = listOf(Kind.METADATA))),
+                onEvent = ::ingest,
+            )
+            delay(300)
+        }
+        val names = HashMap<String, String>()
+        for (event in store.latestOfKind(wanted, Kind.METADATA)) {
+            val profile = parseProfile(event)
+            val name = profile.name.ifEmpty { if (nip05Matches(profile)) handleOf(profile).orEmpty() else "" }
+            if (name.isNotEmpty()) names[event.pubkey] = name
+        }
+        return names
     }
 
     /** Asks every relevant relay what it holds for this account. The report has public data only. */
@@ -1205,6 +1236,7 @@ class Core(private val context: Context) {
         private const val IMAGE_CACHE_BYTES = 80L * 1024 * 1024
         private const val MAX_FEED_RELAYS = 8
         private const val TRUST_THRESHOLD = 2
+        private const val MAX_NOTIFIED_NAMES = 8
         private const val FIRST_CHECK_WINDOW_S = 6 * 3600L
 
         /** One request stays well under the frame limits relays apply. */

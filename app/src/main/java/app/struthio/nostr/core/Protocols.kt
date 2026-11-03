@@ -372,14 +372,21 @@ fun blossomAuthTags(sha256: String, serverHost: String, now: Long): Tags = listO
 fun imetaTag(url: String, mime: String, sha256: String, width: Int, height: Int, size: Int): List<String> =
     listOf("imeta", "url $url", "m $mime", "x $sha256", "dim ${width}x$height", "size $size")
 
-private val VIDEO_EXT = Regex(""".*\.(mp4|webm|mov|m4v)(\?.*)?$""", RegexOption.IGNORE_CASE)
+// Android plays most of these itself, including HLS. Anything it refuses, such as AVI or DASH,
+// gets the "open in another app" button instead.
+private val VIDEO_EXT = Regex(
+    """.*\.(mp4|m4v|mov|webm|mkv|3gp|3g2|ogv|ts|m2ts|mts|mpg|mpeg|avi|wmv|flv|m3u8|mpd)([?#].*)?$""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val STREAM_TYPES = setOf("application/x-mpegurl", "application/vnd.apple.mpegurl", "application/dash+xml")
 
 /** Videos in a note: imeta type first, then file extension. */
 fun noteVideos(event: Event): List<String> {
     val declared = event.tags.filter { it.firstOrNull() == "imeta" }.mapNotNull { tag ->
         val url = tag.firstOrNull { it.startsWith("url ") }?.removePrefix("url ")
         val mime = tag.firstOrNull { it.startsWith("m ") }?.removePrefix("m ")
-        url?.takeIf { mime?.startsWith("video/") == true }
+        url?.takeIf { mime != null && (mime.startsWith("video/") || mime.lowercase() in STREAM_TYPES) }
     }
     val links = parseContent(event.content).filterIsInstance<Part.Link>().map { it.url }
     return links.filter { (it in declared || VIDEO_EXT.matches(it)) && it.startsWith("https://") }.distinct()
