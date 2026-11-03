@@ -376,6 +376,7 @@ class Core(private val context: Context) {
         val secret = Keys.generate()
         secure.put(KEY_SECRET, secret)
         val local = LocalSigner(secret)
+        prefs.edit().putBoolean("account_created_here", true).apply()
         activate(local)
         publish(Draft(local.pubkey, nowSeconds(), Kind.METADATA, emptyList(), JSONObject().put("name", name).toString()))
         publish(relayListDraft(local.pubkey, RelayList(DEFAULT_RELAYS, DEFAULT_RELAYS)), extraRelays = INDEXER_RELAYS.toSet())
@@ -432,8 +433,16 @@ class Core(private val context: Context) {
         val pubkey = me ?: return
         scope.launch {
             val own = Filter(authors = listOf(pubkey), kinds = OWN_LISTS)
-            pool.query((INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays(), listOf(own), onEvent = ::ingest)
+            val asked = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays()
+            pool.query(asked, listOf(own), onEvent = ::ingest)
             delay(300)
+            // The relay list usually arrives in that first round. Lists kept only on the
+            // account's own relays can only be found by asking those relays too (NIP-65).
+            val mine = writeRelays() + readRelays() - asked
+            if (mine.isNotEmpty()) {
+                pool.query(mine, listOf(own), onEvent = ::ingest)
+                delay(300)
+            }
             sessionLoaded.value = true
             // Our own zap provider, so that received zaps can be validated (NIP-57 Appendix F).
             store.latest(pubkey, Kind.METADATA)?.let(::parseProfile)?.let { profile ->
@@ -552,6 +561,9 @@ class Core(private val context: Context) {
     suspend fun saveProfile(fields: Map<String, String>) {
         val pubkey = author()
         latestFromRelays(pubkey, Kind.METADATA)
+        if (store.latest(pubkey, Kind.METADATA) == null && !safeToStartList()) {
+            throw UserError("Your profile has not been found yet, so saving now could replace it. Run the account check in Settings.")
+        }
         val o = runCatching { JSONObject(store.latest(pubkey, Kind.METADATA)?.content ?: "{}") }.getOrDefault(JSONObject())
         fields.forEach { (key, value) -> if (value.isBlank()) o.remove(key) else o.put(key, value.trim()) }
         // Deprecated field names are dropped when a profile is rewritten (NIP-24).
@@ -563,7 +575,7 @@ class Core(private val context: Context) {
     /** Replaceable lists are edited from the newest copy on the network, never from a stale one. */
     private suspend fun latestFromRelays(pubkey: String, kind: Int): Boolean {
         val answered = pool.query(
-            writeRelays() + INDEXER_RELAYS + DEFAULT_RELAYS,
+            writeRelays() + readRelays() + INDEXER_RELAYS + DEFAULT_RELAYS,
             listOf(Filter(authors = listOf(pubkey), kinds = listOf(kind), limit = 1)),
             onEvent = ::ingest,
         )
@@ -571,10 +583,18 @@ class Core(private val context: Context) {
         return answered > 0
     }
 
+    /** True when a missing list really means the account has none, so writing one loses nothing. */
+    private fun safeToStartList(): Boolean =
+        prefs.getBoolean("account_created_here", false) || prefs.getBoolean("confirmed_no_follow_list", false)
+
     suspend fun setFollowing(pubkey: String, follow: Boolean) = followsLock.withLock {
         val me = author()
         if (!latestFromRelays(me, Kind.FOLLOWS)) throw UserError("Could not reach your relays. Try again.")
         val current = store.latest(me, Kind.FOLLOWS)
+        if (current == null && !safeToStartList()) {
+            // Publishing now would replace a list we simply failed to find.
+            throw UserError("Your follow list has not been found yet, so following now could replace it. Run the account check in Settings.")
+        }
         val tags = current?.tags.orEmpty().filterNot { it.size >= 2 && it[0] == "p" && it[1] == pubkey }
         val next: Tags = if (follow) tags + listOf(listOf("p", pubkey)) else tags
         publish(Draft(me, nowSeconds(), Kind.FOLLOWS, next, current?.content ?: ""))
@@ -869,6 +889,52 @@ class Core(private val context: Context) {
             synchronized(found) { found += e.pubkey }
         }
         synchronized(found) { found.toList() }
+    }
+
+    /** Asks every relevant relay what it holds for this account. The report has public data only. */
+    suspend fun accountCheck(): String = withContext(Dispatchers.IO) {
+        val pubkey = me ?: return@withContext "Not signed in."
+        val active = signer.value
+        val relays = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays() + readRelays()
+        val report = StringBuilder()
+        report.append(Nip19.npub(pubkey)).append('\n')
+        report.append("Sign-in: ").append(active?.javaClass?.simpleName ?: "none").append('\n')
+        val filter = Filter(authors = listOf(pubkey), kinds = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.RELAYS, Kind.DM_RELAYS))
+        val found = ArrayList<Pair<String, Event>>()
+        val answered = coroutineScope {
+            relays.map { url ->
+                async {
+                    val count = pool.query(setOf(url), listOf(filter), 8_000) { e, relay ->
+                        ingest(e, relay)
+                        synchronized(found) { found += relay to e }
+                    }
+                    url to (count > 0)
+                }
+            }.awaitAll()
+        }
+        delay(400)
+        val events = synchronized(found) { found.toList() }
+        for ((url, ok) in answered) {
+            report.append('\n').append(url.removePrefix("wss://")).append(if (ok) ": answered" else ": no answer").append('\n')
+            val here = events.filter { it.first == url }.map { it.second }
+            here.firstOrNull { it.kind == Kind.FOLLOWS }?.let {
+                report.append("  follows: ").append(it.tags.values("p").size).append(" at ").append(it.createdAt).append(' ').append(it.id.take(8)).append('\n')
+            }
+            if (ok && here.none { it.kind == Kind.FOLLOWS }) report.append("  follows: none\n")
+            here.firstOrNull { it.kind == Kind.RELAYS }?.let {
+                val list = parseRelayList(it)
+                report.append("  relays: ").append(list.read.size).append(" read, ").append(list.write.size).append(" write\n")
+            }
+            if (here.any { it.kind == Kind.METADATA }) report.append("  profile: yes\n")
+            pool.problemsOf(url).forEach { report.append("  ").append(it).append('\n') }
+        }
+        report.append("\nFollows loaded: ").append(follows.value.size)
+        report.append("\nOwn relays: ").append(writeRelays().size).append(" write, ").append(readRelays().size).append(" read")
+        // A clean answer from several relays is what makes starting a first list safe.
+        if (events.none { it.second.kind == Kind.FOLLOWS } && answered.count { it.second } >= 3 && pool.noDroppedLists(relays)) {
+            prefs.edit().putBoolean("confirmed_no_follow_list", true).apply()
+        }
+        report.toString()
     }
 
     fun mediaServers(): List<String> {

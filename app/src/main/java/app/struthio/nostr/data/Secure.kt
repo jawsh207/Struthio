@@ -118,9 +118,10 @@ class ExternalSigner(
         return reply
     }
 
-    override suspend fun sign(draft: Draft): Event = withContext(Dispatchers.IO) {
+    override suspend fun sign(draft: Draft, background: Boolean): Event = withContext(Dispatchers.IO) {
         val json = draft.toJson()
-        val signature = resolve("SIGN_EVENT", json, "")?.first ?: ask("sign_event", json, null).result
+        val signature = resolve("SIGN_EVENT", json, "")?.first
+            ?: if (background) error("allow this in the signer app") else ask("sign_event", json, null).result
         val event = Event(draft.id, draft.pubkey, draft.createdAt, draft.kind, draft.tags, draft.content, signature ?: error("no signature"))
         check(event.isValid()) { "the signer returned an invalid signature" }
         event

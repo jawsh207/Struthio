@@ -224,7 +224,9 @@ class Filter(
 /** Signs and encrypts on behalf of the user: with a local key or an external NIP-55 signer. */
 interface Signer {
     val pubkey: String
-    suspend fun sign(draft: Draft): Event
+
+    /** [background] means no prompt may be shown; a signer that needs one throws instead. */
+    suspend fun sign(draft: Draft, background: Boolean = false): Event
     suspend fun nip44Encrypt(plaintext: String, peer: String): String
 
     /** [background] means no prompt may be shown; a signer that needs one throws instead. */
@@ -245,7 +247,7 @@ class LocalSigner(private val secret: ByteArray) : Signer {
         return Event(draft.id, draft.pubkey, draft.createdAt, draft.kind, draft.tags, draft.content, sig)
     }
 
-    override suspend fun sign(draft: Draft) = signNow(draft)
+    override suspend fun sign(draft: Draft, background: Boolean) = signNow(draft)
     override suspend fun nip44Encrypt(plaintext: String, peer: String) = Nip44.encrypt(plaintext, conversation(peer))
     override suspend fun nip44Decrypt(payload: String, peer: String, background: Boolean) = Nip44.decrypt(payload, conversation(peer))
 }
@@ -253,7 +255,7 @@ class LocalSigner(private val secret: ByteArray) : Signer {
 /** Signed in with an npub: everything can be read, nothing can be signed. */
 class ReadOnlySigner(override val pubkey: String) : Signer {
     private fun refuse(): Nothing = throw IllegalStateException("This account is read-only. Sign in with your private key or a signer app.")
-    override suspend fun sign(draft: Draft): Event = refuse()
+    override suspend fun sign(draft: Draft, background: Boolean): Event = refuse()
     override suspend fun nip44Encrypt(plaintext: String, peer: String): String = refuse()
     override suspend fun nip44Decrypt(payload: String, peer: String, background: Boolean): String = refuse()
 }

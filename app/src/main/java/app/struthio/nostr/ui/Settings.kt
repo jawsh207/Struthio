@@ -34,6 +34,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -93,6 +94,13 @@ fun SettingsScreen() {
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Section("Relays") {
+                Text("Choose where your notes go and where people can reach you.", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton({ nav.push(Screen.Relays) }) { Text("Manage relays") }
+                    OutlinedButton({ nav.push(Screen.AccountCheck) }) { Text("Account check") }
+                }
+            }
             Section("Profile") {
                 OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(name, { name = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -119,10 +127,6 @@ fun SettingsScreen() {
                     },
                     enabled = !saving,
                 ) { Text(if (saving) "Saving…" else "Save profile") }
-            }
-            Section("Relays") {
-                Text("Choose where your notes go and where people can reach you.", style = MaterialTheme.typography.bodyMedium)
-                FilledTonalButton({ nav.push(Screen.Relays) }) { Text("Manage relays") }
             }
             Section("Media servers") {
                 Text("Images and files you send are stored here. One server per line.", style = MaterialTheme.typography.bodyMedium)
@@ -200,6 +204,34 @@ fun SettingsScreen() {
             },
             dismissButton = { TextButton({ confirmSignOut = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Shows what each relay really holds for this account. Everything in the report is public. */
+@Composable
+fun AccountCheckScreen() {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val context = LocalContext.current
+    val report by produceState<String?>(null) { value = core.accountCheck() }
+    Column(Modifier.fillMaxSize()) {
+        BackBar("Account check")
+        val text = report
+        if (text == null) {
+            Text("Asking your relays…", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Loading(Modifier.fillMaxWidth().padding(24.dp))
+        } else {
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp).navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FilledTonalButton({
+                    context.copy(text)
+                    nav.say("Report copied")
+                }) { Text("Copy report") }
+                SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
     }
 }
 

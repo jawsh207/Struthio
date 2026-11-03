@@ -83,7 +83,11 @@ sleep 8
 adb exec-out screencap -p > smoke/08-global.png
 tap_text "Settings"
 sleep 3
-adb exec-out screencap -p > smoke/09-settings.png
+tap_text "Account check"
+sleep 12
+adb exec-out screencap -p > smoke/09-check.png
+adb shell input keyevent 4
+sleep 1
 adb shell input keyevent 4
 sleep 1
 for server in https://blossom.primal.net https://blossom.band; do

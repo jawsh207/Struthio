@@ -47,6 +47,9 @@ class RelayPool(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > 8000
     }
 
+    private val problems = HashMap<String, MutableList<String>>()
+    private var pauseJob: Job? = null
+
     @Volatile private var foreground = true
 
     private fun relay(url: String) = relays.getOrPut(url) { Relay(url) }
@@ -121,20 +124,47 @@ class RelayPool(
         }
     }
 
+    /**
+     * Leaving the screen closes the sockets after a short grace period, because a trip to a signer
+     * app or the photo picker also stops the activity and must not drop what is loading.
+     */
     fun pause() {
-        foreground = false
-        scope.launch { relays.values.forEach { it.disconnect() } }
+        pauseJob?.cancel()
+        pauseJob = scope.launch {
+            delay(PAUSE_GRACE_MS)
+            foreground = false
+            relays.values.forEach { it.disconnect() }
+        }
     }
 
     fun resume() {
+        pauseJob?.cancel()
         foreground = true
         relays.values.forEach { it.wake() }
     }
 
-    private fun accept(event: Event): Boolean {
-        if (!event.hasValidId()) return false
+    /** What a relay refused or what we refused from it, for the account check. */
+    fun problemsOf(url: String): List<String> = synchronized(problems) { problems[url]?.toList().orEmpty() }
+
+    fun noDroppedLists(urls: Set<String>): Boolean = urls.none { url -> problemsOf(url).any { it.startsWith("dropped") } }
+
+    private fun note(url: String, problem: String) {
+        synchronized(problems) {
+            val list = problems.getOrPut(url) { ArrayList() }
+            if (problem !in list && list.size < 6) list += problem
+        }
+    }
+
+    private fun accept(event: Event, url: String): Boolean {
+        if (!event.hasValidId()) {
+            note(url, "dropped kind ${event.kind}: id does not match its content")
+            return false
+        }
         synchronized(verified) { if (verified.containsKey(event.id)) return true }
-        if (!event.hasValidSignature()) return false
+        if (!event.hasValidSignature()) {
+            note(url, "dropped kind ${event.kind}: bad signature")
+            return false
+        }
         synchronized(verified) { verified[event.id] = true }
         return true
     }
@@ -246,6 +276,7 @@ class RelayPool(
         }
 
         private fun closed(error: Throwable?) {
+            error?.let { note(url, "connection: ${it.message ?: it.javaClass.simpleName}") }
             val failed: List<Pending>
             val current: List<Subscription>
             val retry: Boolean
@@ -299,8 +330,13 @@ class RelayPool(
             when (msg.optString(0)) {
                 "EVENT" -> {
                     val sub = synchronized(lock) { subs[msg.optString(1)] } ?: return
-                    val event = msg.optJSONObject(2)?.let(Event::parse) ?: return
-                    if (accept(event)) sub.onEvent(event, url)
+                    val raw = msg.optJSONObject(2) ?: return
+                    val event = Event.parse(raw)
+                    if (event == null) {
+                        note(url, "dropped kind ${raw.optInt("kind", -1)}: could not be parsed")
+                        return
+                    }
+                    if (accept(event, url)) sub.onEvent(event, url)
                 }
                 "COUNT" -> {
                     val item = synchronized(lock) { counts.remove(msg.optString(1)) } ?: return
@@ -316,6 +352,7 @@ class RelayPool(
                         return
                     }
                     val sub = synchronized(lock) { subs[id] } ?: return
+                    note(url, "closed: $reason")
                     if (reason.startsWith("auth-required") && signer() != null) {
                         synchronized(lock) { waitingForAuth += id }
                         authenticate()
@@ -385,6 +422,7 @@ class RelayPool(
                 try {
                     val auth = who.sign(
                         Draft(who.pubkey, nowSeconds(), Kind.AUTH, listOf(listOf("relay", url), listOf("challenge", token)), ""),
+                        background = true,
                     )
                     synchronized(lock) { authEventId = auth.id }
                     socket?.send("[\"AUTH\",${auth.toJson()}]")
@@ -397,5 +435,6 @@ class RelayPool(
 
     private companion object {
         const val IDLE_CLOSE_MS = 45_000L
+        const val PAUSE_GRACE_MS = 20_000L
     }
 }
