@@ -3,7 +3,7 @@ name: Build release
 # Actions › "Build release" › Run workflow. Picks the next version from the latest tag,
 # then runs the normal build (build.yml) as a release: signed R8 APK, vX.Y.Z tag, and a
 # GitHub Release whose notes hold the change log since the previous release.
-# For hand-written notes, add release-notes/vX.Y.Z.md first (or push it instead of using this).
+# Hand-written notes replace the change log: add release-notes/vX.Y.Z.md first (or push it instead of using this).
 
 on:
   workflow_dispatch:

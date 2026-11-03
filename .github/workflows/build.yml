@@ -193,10 +193,11 @@ jobs:
           TAG="$RELEASE_TAG"
           PREV=$(git describe --tags --abbrev=0 --match 'v*' "${TAG}^" 2>/dev/null || true)
           {
-            # Summary: release-notes/<tag>.md, else the summary typed into "Build release",
-            # else a hand-written annotated tag message.
-            if [ -f "release-notes/$TAG.md" ]; then
-              cat "release-notes/$TAG.md"
+            # Hand-written release-notes/<tag>.md replaces the commit list. Otherwise: the summary
+            # typed into "Build release", or a hand-written annotated tag message, above the list.
+            NOTES="release-notes/$TAG.md"
+            if [ -f "$NOTES" ]; then
+              cat "$NOTES"
               echo
             elif [ -n "${SUMMARY//[[:space:]]/}" ]; then
               echo "**$SUMMARY**"
@@ -206,12 +207,14 @@ jobs:
               if [ -n "$MSG" ] && [ "$MSG" != "Struthio $TAG" ]; then echo "$MSG"; echo; fi
             fi
             # Change log: every commit since the previous release (release bookkeeping left out).
-            echo "## Changes"
-            echo
-            if [ -n "$PREV" ]; then RANGE="$PREV..$TAG"; else RANGE="$TAG"; fi
-            CHANGES=$(git log --no-merges --format='- %s' "$RANGE" | grep -v -E '^- Release v[0-9]' || true)
-            echo "${CHANGES:-- Maintenance release}"
-            echo
+            if [ ! -f "$NOTES" ]; then
+              echo "## Changes"
+              echo
+              if [ -n "$PREV" ]; then RANGE="$PREV..$TAG"; else RANGE="$TAG"; fi
+              CHANGES=$(git log --no-merges --format='- %s' "$RANGE" | grep -v -E '^- Release v[0-9]' || true)
+              echo "${CHANGES:-- Maintenance release}"
+              echo
+            fi
             if [ -n "$PREV" ]; then
               echo "**Full changelog:** https://github.com/$GITHUB_REPOSITORY/compare/$PREV...$TAG"
             fi
