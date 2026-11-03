@@ -101,7 +101,7 @@ class RelayPool(
 
     fun pause() {
         foreground = false
-        relays.values.forEach { it.disconnect() }
+        scope.launch { relays.values.forEach { it.disconnect() } }
     }
 
     fun resume() {

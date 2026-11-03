@@ -61,7 +61,10 @@ fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
             onConsumed()
         }
     }
-    LaunchedEffect(connected) { if (connected) scope.act(nav) { wallet.refresh() } }
+    LaunchedEffect(connected) {
+        // A saved connection that could not be reached at launch gets another try here.
+        scope.act(nav) { if (connected) wallet.refresh() else wallet.restore() }
+    }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Text("Wallet", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp))

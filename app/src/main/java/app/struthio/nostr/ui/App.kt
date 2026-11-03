@@ -2,6 +2,7 @@ package app.struthio.nostr.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -110,7 +111,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
 
     CompositionLocalProvider(LocalCore provides core, LocalNav provides nav) {
         if (signer == null) {
-            Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+            Scaffold(contentWindowInsets = WindowInsets(0), snackbarHost = { SnackbarHost(snackbar) }) { padding ->
                 Onboarding(Modifier.padding(padding))
             }
             return@CompositionLocalProvider
@@ -123,6 +124,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
         val unreadDms by liveQuery(0, tab) { if (tab == 1) 0 else core.store.unreadMessages(me, core.prefs.getLong("dms_read", 0L)) }
 
         Scaffold(
+            contentWindowInsets = WindowInsets(0),
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 if (top == null) {

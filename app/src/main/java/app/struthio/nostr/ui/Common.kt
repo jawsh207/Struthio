@@ -62,7 +62,7 @@ fun <T> liveQuery(initial: T, vararg keys: Any?, query: () -> T): State<T> {
 }
 
 /** Runs an action and shows any failure as a message. */
-fun CoroutineScope.act(nav: Nav, block: suspend () -> Unit) = launch {
+fun CoroutineScope.act(nav: Nav, block: suspend () -> Unit) = launch(Dispatchers.IO) {
     try {
         block()
     } catch (e: CancellationException) {

@@ -19,18 +19,14 @@ import app.struthio.nostr.core.Signer
 import app.struthio.nostr.core.Tags
 import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.core.chooseRelays
-import app.struthio.nostr.core.first
 import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.core.parseRelayList
 import app.struthio.nostr.core.prepareContent
-import app.struthio.nostr.core.quoteJson
-import app.struthio.nostr.core.randomBytes
 import app.struthio.nostr.core.replyTags
 import app.struthio.nostr.core.roomOf
 import app.struthio.nostr.core.secureRandom
 import app.struthio.nostr.core.threadRef
-import app.struthio.nostr.core.value
 import app.struthio.nostr.core.values
 import app.struthio.nostr.core.zapSplits
 import app.struthio.nostr.net.Bech32Lnurl
@@ -100,6 +96,7 @@ class Core(private val context: Context) {
     private val statsFetched = HashMap<String, Long>()
     private val sessionSubs = ArrayList<Subscription>()
     private val followsLock = Mutex()
+    private val nip05Checked = HashSet<String>()
 
     init {
         scope.launch { ingestLoop() }
@@ -172,8 +169,6 @@ class Core(private val context: Context) {
         }
         verifyNip05(profile)
     }
-
-    private val nip05Checked = HashSet<String>()
 
     /** NIP-05: only a matching pubkey at the domain earns the check mark. Redirects are not followed. */
     private fun verifyNip05(profile: Profile) {
@@ -396,6 +391,10 @@ class Core(private val context: Context) {
             val own = Filter(authors = listOf(pubkey), kinds = OWN_LISTS)
             pool.query((INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays(), listOf(own), onEvent = ::ingest)
             delay(200)
+            // Our own zap provider, so that received zaps can be validated (NIP-57 Appendix F).
+            store.latest(pubkey, Kind.METADATA)?.let(::parseProfile)?.let { profile ->
+                runCatching { lnurlInfo(profile) }.getOrNull()?.let { store.setProvider(pubkey, it.nostrPubkey, nowSeconds()) }
+            }
             sessionSubs.forEach(pool::close)
             sessionSubs.clear()
             val since = nowSeconds() - 14 * 86400
@@ -709,8 +708,8 @@ class Core(private val context: Context) {
 
     // Lookups
 
-    suspend fun fetchEvent(id: String, hints: List<String> = emptyList(), author: String? = null): Event? {
-        store.event(id)?.let { return it }
+    suspend fun fetchEvent(id: String, hints: List<String> = emptyList(), author: String? = null): Event? = withContext(Dispatchers.IO) {
+        store.event(id)?.let { return@withContext it }
         val relays = hints.mapNotNull(::normalizeRelay).toMutableSet()
         author?.let { relaysOf(it)?.write?.let(relays::addAll) }
         relays += readRelays()
@@ -720,11 +719,11 @@ class Core(private val context: Context) {
             found = e
             ingest(e, relay)
         }
-        return found
+        found
     }
 
     /** The thread a note belongs to: its root, then everything replying to it. */
-    suspend fun loadThread(event: Event): String {
+    suspend fun loadThread(event: Event): String = withContext(Dispatchers.IO) {
         val root = threadRef(event).root ?: event.id
         val ref = threadRef(event)
         if (ref.root != null) fetchEvent(ref.root, author = ref.rootAuthor)
@@ -737,7 +736,7 @@ class Core(private val context: Context) {
             ),
             onEvent = ::ingest,
         )
-        return root
+        root
     }
 
     fun searchRelays(): Set<String> {
@@ -761,7 +760,5 @@ class Core(private val context: Context) {
         val OWN_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.MUTES, Kind.RELAYS, Kind.SEARCH_RELAYS, Kind.DM_RELAYS)
         val STAT_KINDS = listOf(Kind.NOTE, Kind.REPOST, Kind.REACTION, Kind.COMMENT, Kind.ZAP_RECEIPT)
         val ALERT_KINDS = listOf(Kind.NOTE, Kind.COMMENT, Kind.REPOST, Kind.REACTION, Kind.ZAP_RECEIPT)
-
-        fun sealRandomName() = Hex.encode(randomBytes(4))
     }
 }
