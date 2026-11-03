@@ -290,7 +290,7 @@ class Core(private val context: Context) {
             wantedStats += id
             if (statsJob?.isActive == true) return
             statsJob = scope.launch {
-                delay(300)
+                delay(600)
                 val ids = synchronized(wantedStats) { wantedStats.toList().also { wantedStats.clear() } }
                 refreshStats(ids)
                 val now = nowSeconds()
@@ -299,7 +299,7 @@ class Core(private val context: Context) {
                 }
                 stale.chunked(60).forEach { chunk ->
                     pool.query(
-                        readRelays() + DEFAULT_RELAYS,
+                        readRelays().take(2).toSet() + DEFAULT_RELAYS,
                         listOf(
                             Filter(kinds = STAT_KINDS, tags = mapOf("e" to chunk), limit = 600),
                             Filter(kinds = listOf(Kind.NOTE), tags = mapOf("q" to chunk), limit = 100),
@@ -574,13 +574,15 @@ class Core(private val context: Context) {
 
     /** Replaceable lists are edited from the newest copy on the network, never from a stale one. */
     private suspend fun latestFromRelays(pubkey: String, kind: Int): Boolean {
+        val own = writeRelays()
         val answered = pool.query(
-            writeRelays() + readRelays() + INDEXER_RELAYS + DEFAULT_RELAYS,
+            own + readRelays() + INDEXER_RELAYS + DEFAULT_RELAYS,
             listOf(Filter(authors = listOf(pubkey), kinds = listOf(kind), limit = 1)),
             onEvent = ::ingest,
         )
         delay(150)
-        return answered > 0
+        // The newest copy lives on the account's write relays, so one of those has to have answered.
+        return answered.any { it in own }
     }
 
     /** True when a missing list really means the account has none, so writing one loses nothing. */
@@ -896,6 +898,7 @@ class Core(private val context: Context) {
         val pubkey = me ?: return@withContext "Not signed in."
         val active = signer.value
         val relays = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays() + readRelays()
+        pool.clearProblems()
         val report = StringBuilder()
         report.append(Nip19.npub(pubkey)).append('\n')
         report.append("Sign-in: ").append(
@@ -911,11 +914,11 @@ class Core(private val context: Context) {
         val answered = coroutineScope {
             relays.map { url ->
                 async {
-                    val count = pool.query(setOf(url), listOf(filter), 8_000) { e, relay ->
+                    val responded = pool.query(setOf(url), listOf(filter), 8_000) { e, relay ->
                         ingest(e, relay)
                         synchronized(found) { found += relay to e }
                     }
-                    url to (count > 0)
+                    url to responded.isNotEmpty()
                 }
             }.awaitAll()
         }
