@@ -30,13 +30,16 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,6 +72,8 @@ import com.google.zxing.qrcode.QRCodeReader
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.util.concurrent.atomic.AtomicBoolean
+
+private val Scrim = Color(0xB3000000)
 
 /** Camera2 feeding frames to the QR reader. No Play Services and no CameraX. */
 private class QrCamera(
@@ -222,15 +227,24 @@ fun QrScanner(onResult: (String) -> Unit, onClose: () -> Unit) {
                     Button({ ask.launch(Manifest.permission.CAMERA) }) { Text("Allow camera") }
                 }
             }
-            IconButton(onClose, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp)) {
-                Icon(Icons.Rounded.Close, "Close", tint = Color.White)
+            FilledIconButton(
+                onClose,
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Scrim, contentColor = Color.White),
+            ) {
+                Icon(Icons.Rounded.Close, "Close")
             }
             if (granted && !failed) {
                 Text(
                     "Point at a QR code",
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(32.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(32.dp)
+                        .background(Scrim, CircleShape)
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
                 )
             }
         }
