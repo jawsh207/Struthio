@@ -53,10 +53,12 @@ sleep 1
 tap_text "Sign in"
 sleep 26
 adb exec-out screencap -p > smoke/02-following.png
-long_press "Reactions"
+adb shell input swipe 500 1500 500 700 400
+sleep 2
+long_press "Reactions" | tee smoke/held.txt
 sleep 1
 adb exec-out screencap -p > smoke/03-emoji.png
-adb shell input keyevent 4
+grep -q held smoke/held.txt && adb shell input keyevent 4
 sleep 1
 adb shell am start -a android.intent.action.VIEW -d "nostr:$NPUB" >/dev/null
 sleep 12

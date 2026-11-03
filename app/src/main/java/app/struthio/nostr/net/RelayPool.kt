@@ -49,6 +49,7 @@ class RelayPool(
 
     private val problems = HashMap<String, MutableList<String>>()
     private var pauseJob: Job? = null
+    private val visible = AtomicInteger()
 
     @Volatile private var foreground = true
 
@@ -128,16 +129,20 @@ class RelayPool(
      * Leaving the screen closes the sockets after a short grace period, because a trip to a signer
      * app or the photo picker also stops the activity and must not drop what is loading.
      */
-    fun pause() {
+    fun activityStopped() {
+        if (visible.decrementAndGet() > 0) return
         pauseJob?.cancel()
         pauseJob = scope.launch {
             delay(PAUSE_GRACE_MS)
+            if (visible.get() > 0) return@launch
             foreground = false
             relays.values.forEach { it.disconnect() }
         }
     }
 
-    fun resume() {
+    /** Counted, because an old activity's stop can arrive after the next one has started. */
+    fun activityStarted() {
+        visible.incrementAndGet()
         pauseJob?.cancel()
         foreground = true
         relays.values.forEach { it.wake() }

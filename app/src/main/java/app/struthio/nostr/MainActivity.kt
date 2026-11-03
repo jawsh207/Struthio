@@ -59,11 +59,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        core.pool.resume()
+        core.pool.activityStarted()
     }
 
     override fun onStop() {
         super.onStop()
-        core.pool.pause()
+        core.pool.activityStopped()
     }
 }

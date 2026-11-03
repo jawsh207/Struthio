@@ -898,7 +898,14 @@ class Core(private val context: Context) {
         val relays = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays() + readRelays()
         val report = StringBuilder()
         report.append(Nip19.npub(pubkey)).append('\n')
-        report.append("Sign-in: ").append(active?.javaClass?.simpleName ?: "none").append('\n')
+        report.append("Sign-in: ").append(
+            when (active) {
+                is ExternalSigner -> "signer app"
+                is ReadOnlySigner -> "read-only"
+                is LocalSigner -> "private key"
+                else -> "none"
+            },
+        ).append('\n')
         val filter = Filter(authors = listOf(pubkey), kinds = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.RELAYS, Kind.DM_RELAYS))
         val found = ArrayList<Pair<String, Event>>()
         val answered = coroutineScope {
