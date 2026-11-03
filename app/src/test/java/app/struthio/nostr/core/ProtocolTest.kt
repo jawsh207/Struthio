@@ -310,6 +310,16 @@ class ProtocolTest {
     }
 
     @Test
+    fun addressesAreRecognized() {
+        assertTrue(isNip05Address("bob@example.com"))
+        assertTrue(isNip05Address("_@Example.com"))
+        assertFalse(isNip05Address("bob"))
+        assertFalse(isNip05Address("bob@localhost"))
+        assertFalse(isNip05Address("bob@10.0.0.1"))
+        assertFalse(isNip05Address("bob@printer.local"))
+    }
+
+    @Test
     fun serversCanRevealMedia() {
         assertEquals("video", mediaKind("video/mp4"))
         assertEquals("video", mediaKind("application/vnd.apple.mpegurl"))

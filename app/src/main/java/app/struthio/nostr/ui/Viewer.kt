@@ -1,6 +1,7 @@
 package app.struthio.nostr.ui
 
 import android.content.Intent
+import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.MediaController
 import android.widget.VideoView
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -132,6 +134,7 @@ fun VideoCard(url: String) {
     val context = LocalContext.current
     var playing by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
     val openExternally = {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(url), "video/*")) }
         Unit
@@ -142,21 +145,32 @@ fun VideoCard(url: String) {
     ) {
         when {
             failed -> TextButton(openExternally) { Text("Open in another app", color = Color.White) }
-            playing -> AndroidView(
-                factory = {
-                    VideoView(it).apply {
-                        setMediaController(MediaController(it).also { controller -> controller.setAnchorView(this) })
-                        setOnErrorListener { _, _, _ ->
-                            failed = true
-                            true
+            playing -> {
+                AndroidView(
+                    factory = {
+                        VideoView(it).apply {
+                            setMediaController(MediaController(it).also { controller -> controller.setAnchorView(this) })
+                            setOnPreparedListener { loading = false }
+                            setOnInfoListener { _, what, _ ->
+                                when (what) {
+                                    MediaPlayer.MEDIA_INFO_BUFFERING_START -> loading = true
+                                    MediaPlayer.MEDIA_INFO_BUFFERING_END, MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START -> loading = false
+                                }
+                                false
+                            }
+                            setOnErrorListener { _, _, _ ->
+                                failed = true
+                                true
+                            }
+                            setVideoURI(Uri.parse(url))
+                            start()
                         }
-                        setVideoURI(Uri.parse(url))
-                        start()
-                    }
-                },
-                onRelease = { it.stopPlayback() },
-                modifier = Modifier.fillMaxSize(),
-            )
+                    },
+                    onRelease = { it.stopPlayback() },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (loading) CircularProgressIndicator(color = Color.White)
+            }
             else -> FilledIconButton(
                 { playing = true },
                 Modifier.size(64.dp),

@@ -431,6 +431,12 @@ fun parseLinkInfo(url: String, html: String): LinkInfo? {
 }
 
 /** Only ordinary public names: a note must not make the phone probe its own network. */
+/** "name@example.com" on a public domain, the form NIP-05 addresses take. */
+fun isNip05Address(text: String): Boolean =
+    NIP05_ADDRESS.matches(text) && isPreviewable("https://" + text.substringAfterLast('@') + "/")
+
+private val NIP05_ADDRESS = Regex("[a-z0-9._-]+@[a-z0-9.-]+\\.[a-z]{2,}", RegexOption.IGNORE_CASE)
+
 fun isPreviewable(url: String): Boolean = runCatching {
     val host = URI(url).host?.lowercase() ?: return false
     url.startsWith("https://") && host.contains('.') && !host.endsWith(".local") && !host.endsWith(".lan") &&

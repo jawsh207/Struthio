@@ -25,6 +25,7 @@ import app.struthio.nostr.core.Tags
 import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.core.chooseRelays
 import app.struthio.nostr.core.imetaTag
+import app.struthio.nostr.core.isNip05Address
 import app.struthio.nostr.core.isPreviewable
 import app.struthio.nostr.core.mediaKind
 import app.struthio.nostr.core.normalizeRelay
@@ -235,15 +236,20 @@ class Core(private val context: Context) {
         }
     }
 
-    private fun nip05Matches(profile: Profile): Boolean {
-        val address = profile.nip05 ?: return false
-        val at = address.lastIndexOf('@').takeIf { it > 0 } ?: return false
+    private fun nip05Matches(profile: Profile) = profile.nip05?.let(::nip05Owner) == profile.pubkey
+
+    /** Who a typed NIP-05 address belongs to, according to its domain. */
+    suspend fun resolveAddress(text: String): String? =
+        if (isNip05Address(text)) withContext(Dispatchers.IO) { nip05Owner(text) } else null
+
+    private fun nip05Owner(address: String): String? {
+        val at = address.lastIndexOf('@').takeIf { it > 0 } ?: return null
         val name = address.substring(0, at).lowercase()
         val domain = address.substring(at + 1)
         return runCatching {
             val url = "https://$domain/.well-known/nostr.json?name=${URLEncoder.encode(name, "UTF-8")}"
-            Http.json(url, followRedirects = false).getJSONObject("names").optString(name) == profile.pubkey
-        }.getOrDefault(false)
+            Http.json(url, followRedirects = false).getJSONObject("names").optString(name).takeIf(Hex::isKey)
+        }.getOrNull()
     }
 
     /** "_@example.com" is the NIP-05 way of saying "example.com". */

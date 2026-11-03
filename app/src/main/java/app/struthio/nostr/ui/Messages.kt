@@ -28,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachFile
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -78,7 +78,6 @@ fun MessagesScreen() {
     val me = core.me ?: return
     val relays by core.dmRelays.collectAsState()
     val rooms by liveQuery(emptyList<Room>()) { core.store.rooms(me) }
-    var starting by remember { mutableStateOf(false) }
     LaunchedEffect(rooms) { core.prefs.edit().putLong("dms_read", nowSeconds()).apply() }
 
     Box(Modifier.fillMaxSize()) {
@@ -112,39 +111,47 @@ fun MessagesScreen() {
             }
         }
         FloatingActionButton(
-            onClick = { starting = true },
+            onClick = { nav.push(Screen.NewMessage) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             containerColor = MaterialTheme.colorScheme.primaryContainer,
         ) { Icon(Icons.Rounded.Add, "New message") }
     }
+}
 
-    if (starting) {
-        var text by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { starting = false },
-            title = { Text("New message") },
-            text = {
-                OutlinedTextField(
-                    text,
-                    { text = it },
-                    label = { Text("npub of the person") },
-                    singleLine = true,
-                    trailingIcon = { ScanButton { text = it.removePrefix("nostr:") } },
-                )
+/** Finds someone to message the same way search finds people. */
+@Composable
+fun NewMessageScreen() {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val me = core.me ?: return
+    var query by remember { mutableStateOf("") }
+    val people = rememberPeople(query)
+    val start = { pubkey: String ->
+        nav.pop()
+        nav.push(Screen.Chat(roomKey(setOf(pubkey, me))))
+    }
+    Column(Modifier.fillMaxSize().imePadding()) {
+        BackBar("New message")
+        OutlinedTextField(
+            query,
+            { query = it },
+            placeholder = { Text("Name, NIP-05 address or npub") },
+            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            trailingIcon = {
+                ScanButton { scanned ->
+                    val entity = Nip19.decode(scanned.removePrefix("nostr:")) as? Entity.Profile
+                    if (entity != null) start(entity.pubkey) else nav.say("That is not a profile code.")
+                }
             },
-            confirmButton = {
-                TextButton({
-                    val entity = Nip19.decode(text.trim()) as? Entity.Profile
-                    if (entity == null) {
-                        nav.say("That is not an npub.")
-                    } else {
-                        starting = false
-                        nav.push(Screen.Chat(roomKey(setOf(entity.pubkey, me))))
-                    }
-                }) { Text("Start") }
-            },
-            dismissButton = { TextButton({ starting = false }) { Text("Cancel") } },
+            singleLine = true,
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
         )
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = PageGutter, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            itemsIndexed(people, key = { _, it -> it }) { index, pubkey ->
+                PersonRow(core, pubkey, segmentShape(index, people.size)) { start(pubkey) }
+            }
+        }
     }
 }
 

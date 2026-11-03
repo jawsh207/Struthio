@@ -35,26 +35,23 @@ object Http {
         out.toByteArray()
     }
 
-    /** NIP-05 forbids following redirects, so that is the caller's choice. */
-    fun json(url: String, followRedirects: Boolean = true): JSONObject {
-        val conn = open(url, followRedirects)
-        try {
-            if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
-            return JSONObject(String(read(conn, MAX_JSON)))
-        } finally {
-            conn.disconnect()
-        }
+    /**
+     * Reads a whole response. The connection is only dropped on failure: fully read, it goes back
+     * to the pool, and the next request to that server skips the connection and TLS setup.
+     */
+    private fun fetch(conn: HttpURLConnection, limit: Int): ByteArray = try {
+        if (conn.responseCode !in 200..299) throw IOException(conn.getHeaderField("X-Reason") ?: "HTTP ${conn.responseCode}")
+        read(conn, limit)
+    } catch (e: IOException) {
+        conn.disconnect()
+        throw e
     }
 
-    fun bytes(url: String): ByteArray {
-        val conn = open(url, true)
-        try {
-            if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
-            return read(conn, MAX_FILE)
-        } finally {
-            conn.disconnect()
-        }
-    }
+    /** NIP-05 forbids following redirects, so that is the caller's choice. */
+    fun json(url: String, followRedirects: Boolean = true): JSONObject =
+        JSONObject(String(fetch(open(url, followRedirects), MAX_JSON)))
+
+    fun bytes(url: String): ByteArray = fetch(open(url, true), MAX_FILE)
 
     class Page(val type: String, val html: String?)
 
@@ -86,21 +83,14 @@ object Http {
     /** Blossom upload: the body is sent as is, and the server describes what it stored. */
     fun put(url: String, body: ByteArray, type: String, headers: Map<String, String>): JSONObject {
         val conn = open(url, true)
-        try {
-            conn.requestMethod = "PUT"
-            conn.doOutput = true
-            conn.readTimeout = 60_000
-            conn.setFixedLengthStreamingMode(body.size)
-            conn.setRequestProperty("Content-Type", type)
-            headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
-            conn.outputStream.use { it.write(body) }
-            if (conn.responseCode !in 200..299) {
-                throw IOException(conn.getHeaderField("X-Reason") ?: "HTTP ${conn.responseCode}")
-            }
-            return JSONObject(String(read(conn, MAX_JSON)))
-        } finally {
-            conn.disconnect()
-        }
+        conn.requestMethod = "PUT"
+        conn.doOutput = true
+        conn.readTimeout = 60_000
+        conn.setFixedLengthStreamingMode(body.size)
+        conn.setRequestProperty("Content-Type", type)
+        headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
+        conn.outputStream.use { it.write(body) }
+        return JSONObject(String(fetch(conn, MAX_JSON)))
     }
 
     /** Fetches [url] through a small on-disk cache. */

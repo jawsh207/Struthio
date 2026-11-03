@@ -2,6 +2,7 @@ package app.struthio.nostr.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -45,9 +46,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 val LocalCore = staticCompositionLocalOf<Core> { error("no core") }
 val LocalNav = staticCompositionLocalOf<Nav> { error("no nav") }
@@ -86,7 +92,32 @@ private object Images {
     val memory = object : LruCache<String, Bitmap>(heap) {
         override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
     }
-    val network = Semaphore(5)
+
+    // Avatars are many and small, so they get their own lane and can't hold up pictures in notes.
+    private val avatars = Semaphore(4)
+    private val pictures = Semaphore(4)
+    private val fetching = ConcurrentHashMap<String, Mutex>()
+    private val failed = ConcurrentHashMap<String, Long>()
+
+    /** One download per image however many rows show it. Cached images never wait for the network. */
+    suspend fun file(url: String, dir: File, small: Boolean): File {
+        val name = Hex.encode(sha256(url.toByteArray()))
+        if (File(dir, name).length() > 0) return Http.cached(url, dir, name)
+        val since = failed[name]
+        if (since != null && SystemClock.elapsedRealtime() - since < RETRY_MS) throw IOException("failed recently")
+        return fetching.getOrPut(name) { Mutex() }.withLock {
+            (if (small) avatars else pictures).withPermit {
+                try {
+                    Http.cached(url, dir, name)
+                } catch (e: IOException) {
+                    failed[name] = SystemClock.elapsedRealtime()
+                    throw e
+                }
+            }
+        }
+    }
+
+    private const val RETRY_MS = 120_000L
 
     fun decode(file: java.io.File, widthPx: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -109,8 +140,7 @@ fun rememberImage(url: String?, width: Dp): State<Bitmap?> {
         if (url == null || value != null) return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val name = Hex.encode(sha256(url.toByteArray()))
-                val file = Images.network.withPermit { Http.cached(url, core.imageDir, name) }
+                val file = Images.file(url, core.imageDir, width <= 96.dp)
                 Images.decode(file, widthPx)?.also { Images.memory.put(url + widthPx, it) }
             }.getOrNull()
         }

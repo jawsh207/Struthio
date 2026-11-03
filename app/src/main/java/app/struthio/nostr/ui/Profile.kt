@@ -53,6 +53,7 @@ import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Nip19
+import app.struthio.nostr.core.isNip05Address
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.Feed
 import app.struthio.nostr.data.FeedSource
@@ -192,6 +193,33 @@ fun PeopleScreen(screen: Screen.People) {
     }
 }
 
+/** People matching what was typed: an npub or nprofile, a NIP-05 address, or a name. Follows come first. */
+@Composable
+fun rememberPeople(query: String): List<String> {
+    val core = LocalCore.current
+    val text = query.trim()
+    val exact = remember(text) { (Nip19.decode(text.removePrefix("nostr:")) as? Entity.Profile)?.pubkey }
+    var owner by remember(text) { mutableStateOf<String?>(null) }
+    val named by liveQuery(emptyList(), text) {
+        if (text.length >= 2) core.store.searchProfiles(text, 12).map { it.pubkey } else emptyList()
+    }
+    LaunchedEffect(text) {
+        if (exact != null || text.length < 3) return@LaunchedEffect
+        delay(500)
+        owner = core.resolveAddress(text)
+        core.pool.query(
+            core.searchRelays(),
+            listOf(Filter(kinds = listOf(Kind.METADATA), search = text, limit = 12)),
+            4000,
+            onEvent = core::ingest,
+        )
+    }
+    return remember(exact, owner, named) {
+        val follows = core.follows.value
+        (listOfNotNull(exact, owner) + named.sortedByDescending { it in follows }).distinct()
+    }
+}
+
 @Composable
 fun SearchScreen() {
     val core = LocalCore.current
@@ -203,24 +231,13 @@ fun SearchScreen() {
         feed?.start()
         onDispose { feed?.stop() }
     }
-    val people by liveQuery(emptyList(), query) {
-        if (query.length >= 2) core.store.searchProfiles(query, 12).map { it.pubkey } else emptyList()
-    }
-    LaunchedEffect(query) {
-        if (query.length < 3) return@LaunchedEffect
-        delay(500)
-        core.pool.query(
-            core.searchRelays(),
-            listOf(Filter(kinds = listOf(Kind.METADATA), search = query, limit = 12)),
-            4000,
-            onEvent = core::ingest,
-        )
-    }
+    val people = rememberPeople(query)
 
     fun submit() {
         val text = query.trim()
         when {
             text.startsWith("#") && text.length > 1 -> nav.push(Screen.Hashtag(text.drop(1)))
+            isNip05Address(text) && people.isNotEmpty() -> nav.push(Screen.Profile(people.first()))
             else -> when (val entity = Nip19.decode(text)) {
                 is Entity.Profile -> nav.push(Screen.Profile(entity.pubkey))
                 is Entity.Note -> nav.push(Screen.Thread(entity.id, entity.relays, entity.author))

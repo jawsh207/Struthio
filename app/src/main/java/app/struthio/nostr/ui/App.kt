@@ -57,6 +57,7 @@ sealed interface Screen {
     data class Hashtag(val tag: String) : Screen
     data class Compose(val quote: String? = null) : Screen
     data class Chat(val room: String) : Screen
+    data object NewMessage : Screen
     data object Search : Screen
     data object Settings : Screen
     data object Relays : Screen
@@ -182,6 +183,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                     is Screen.Hashtag -> HashtagScreen(top.tag)
                     is Screen.Compose -> ComposeScreen(top.quote)
                     is Screen.Chat -> ChatScreen(top.room)
+                    Screen.NewMessage -> NewMessageScreen()
                     Screen.Search -> SearchScreen()
                     Screen.Settings -> SettingsScreen()
                     Screen.Relays -> RelaysScreen()
