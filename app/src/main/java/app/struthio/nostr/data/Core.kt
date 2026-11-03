@@ -392,8 +392,8 @@ class Core(private val context: Context) {
         signer.value = active
         applyCachedMutes(pubkey)
         wantProfile(pubkey)
-        Notifier.schedule(context, notifyMinutes())
         startSession()
+        Notifier.schedule(context, notifyMinutes())
     }
 
     private fun loadCachedLists(pubkey: String) {
@@ -1087,7 +1087,9 @@ class Core(private val context: Context) {
         val now = nowSeconds()
         val since = prefs.getLong("notify_since", now - 3600)
         if (pool.isVisible) {
-            prefs.edit().putLong("notify_since", now).apply()
+            // On screen, activity shows up by itself. The first background check starts from the
+            // last hour, so this only moves a starting point that already exists.
+            if (prefs.contains("notify_since")) prefs.edit().putLong("notify_since", now).apply()
             return
         }
         val checker = RelayPool(scope) { signer.value }

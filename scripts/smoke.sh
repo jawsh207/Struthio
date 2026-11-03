@@ -54,10 +54,10 @@ sleep 1
 tap_text "Sign in"
 sleep 26
 adb exec-out screencap -p > smoke/02-following.png
-tap_text "More"
+tap_text "More" | tee smoke/menu.txt
 sleep 1
 adb exec-out screencap -p > smoke/02b-menu.png
-adb shell input keyevent 4
+grep -q tapped smoke/menu.txt && adb shell input keyevent 4
 sleep 1
 adb shell input swipe 500 1500 500 700 400
 sleep 2
@@ -127,8 +127,10 @@ adb shell input keyevent 3
 sleep 3
 adb shell cmd jobscheduler run -f "$PKG" 1
 sleep 30
+grep -E "Struthio|could not schedule|IllegalArgument" smoke/logcat.txt | head -5 || true
+adb logcat -d | grep -E "W Struthio|could not schedule|JobSchedulerService.*struthio" | head -8
 echo "notifications posted: $(adb shell dumpsys notification --noredact | grep -c "pkg=$PKG")"
-adb shell dumpsys jobscheduler | grep -A3 "$PKG/" | grep -E "Periodic|period" | head -2
+adb shell dumpsys jobscheduler | grep -E "$PKG" | head -4 | cut -c1-120
 adb logcat -d > smoke/logcat.txt
 if grep -E "FATAL EXCEPTION|ANR in $PKG" smoke/logcat.txt; then
   grep -A25 "FATAL EXCEPTION" smoke/logcat.txt | head -60

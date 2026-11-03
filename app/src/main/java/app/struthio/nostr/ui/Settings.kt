@@ -108,7 +108,7 @@ fun SettingsScreen() {
             Section("Account") {
                 val npub = Nip19.npub(me)
                 Text(npub, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton({
                         context.copy(npub)
                         nav.say("Public key copied")
@@ -131,7 +131,7 @@ fun SettingsScreen() {
             }
             Section("Relays") {
                 Text("Choose where your notes go and where people can reach you.", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton({ nav.push(Screen.Relays) }) { Text("Manage relays") }
                     OutlinedButton({ nav.push(Screen.AccountCheck) }) { Text("Account check") }
                 }

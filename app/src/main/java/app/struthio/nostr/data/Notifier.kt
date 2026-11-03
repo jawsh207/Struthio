@@ -12,6 +12,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import app.struthio.nostr.MainActivity
 import app.struthio.nostr.R
 import app.struthio.nostr.StruthioApp
@@ -33,21 +34,26 @@ object Notifier {
     private const val MESSAGES_ID = 101
 
     fun schedule(context: Context, minutes: Int) {
-        val scheduler = context.getSystemService(JobScheduler::class.java)
-        if (minutes <= 0) {
-            scheduler.cancel(JOB_ID)
-            return
+        // Notifications must never get in the way of the account itself.
+        try {
+            val scheduler = context.getSystemService(JobScheduler::class.java)
+            if (minutes <= 0) {
+                scheduler.cancel(JOB_ID)
+                return
+            }
+            val interval = minutes * 60_000L
+            val pending = scheduler.getPendingJob(JOB_ID)
+            if (pending?.intervalMillis == interval) return
+            scheduler.schedule(
+                JobInfo.Builder(JOB_ID, ComponentName(context, CheckService::class.java))
+                    .setPeriodic(interval)
+                    .setPersisted(true)
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .build(),
+            )
+        } catch (e: RuntimeException) {
+            Log.w("Struthio", "could not schedule checks", e)
         }
-        val interval = minutes * 60_000L
-        val pending = scheduler.getPendingJob(JOB_ID)
-        if (pending?.intervalMillis == interval) return
-        scheduler.schedule(
-            JobInfo.Builder(JOB_ID, ComponentName(context, CheckService::class.java))
-                .setPeriodic(interval)
-                .setPersisted(true)
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .build(),
-        )
     }
 
     private fun channels(manager: NotificationManager) {
