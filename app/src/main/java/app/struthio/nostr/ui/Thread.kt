@@ -13,10 +13,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -168,6 +170,17 @@ fun ComposeScreen(quoteId: String?) {
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar(if (quoteId == null) "New note" else "Quote note") {
             AttachImageButton { attached += it }
+            if (quoteId == null) {
+                IconButton(
+                    {
+                        sensitive = !sensitive
+                        nav.say(if (sensitive) "Marked as sensitive content" else "No longer marked as sensitive")
+                    },
+                    colors = if (sensitive) IconButtonDefaults.filledTonalIconButtonColors() else IconButtonDefaults.iconButtonColors(),
+                ) {
+                    Icon(Icons.Rounded.VisibilityOff, if (sensitive) "Sensitive content, on" else "Sensitive content, off")
+                }
+            }
             androidx.compose.material3.Button(
                 onClick = {
                     sending = true
@@ -191,14 +204,6 @@ fun ComposeScreen(quoteId: String?) {
             ) { Text(if (sending) "Posting…" else "Post") }
         }
         NoteField(draft, "What's on your mind?", Modifier.fillMaxWidth().weight(1f).padding(PageGutter))
-        if (quoteId == null) {
-            FilterChip(
-                sensitive,
-                { sensitive = !sensitive },
-                { Text("Sensitive content") },
-                Modifier.padding(horizontal = PageGutter),
-            )
-        }
         AttachedImages(attached) { attached.remove(it) }
         quoted?.let {
             Surface(
