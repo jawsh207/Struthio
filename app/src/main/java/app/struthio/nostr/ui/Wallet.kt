@@ -128,7 +128,7 @@ private fun ConnectWallet() {
     var uri by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceBright,
         modifier = Modifier.fillMaxWidth().padding(horizontal = PageGutter),
     ) {

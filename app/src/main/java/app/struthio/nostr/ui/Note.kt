@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -79,7 +80,7 @@ import app.struthio.nostr.data.Stats
 
 /** A list entry: a note, or a boost wrapped around one. */
 @Composable
-fun FeedItem(event: Event, modifier: Modifier = Modifier) {
+fun FeedItem(event: Event, modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(24.dp)) {
     val core = LocalCore.current
     if (event.kind == Kind.REPOST) {
         val inner by produceState<Event?>(repostedEvent(event), event.id) {
@@ -88,19 +89,25 @@ fun FeedItem(event: Event, modifier: Modifier = Modifier) {
             }
         }
         val note = inner ?: return
-        NoteCard(note, modifier, boostedBy = event.pubkey)
+        NoteCard(note, modifier, boostedBy = event.pubkey, shape = shape)
     } else {
-        NoteCard(event, modifier)
+        NoteCard(event, modifier, shape = shape)
     }
 }
 
 @Composable
-fun NoteCard(event: Event, modifier: Modifier = Modifier, boostedBy: String? = null, detail: Boolean = false) {
+fun NoteCard(
+    event: Event,
+    modifier: Modifier = Modifier,
+    boostedBy: String? = null,
+    detail: Boolean = false,
+    shape: Shape = RoundedCornerShape(24.dp),
+) {
     val nav = LocalNav.current
     Surface(
         onClick = { nav.push(Screen.Thread(event.id)) },
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceBright,
     ) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = if (boostedBy != null) 12.dp else 16.dp, bottom = 8.dp)) {

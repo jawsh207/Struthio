@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -178,10 +178,12 @@ fun NoteList(feed: Feed, modifier: Modifier = Modifier, empty: String = "Nothing
             Modifier.fillMaxSize(),
             state = list,
             contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             header?.let { item(key = "header") { it() } }
-            items(notes, key = { it.id }, contentType = { it.kind }) { FeedItem(it) }
+            itemsIndexed(notes, key = { _, it -> it.id }, contentType = { _, it -> it.kind }) { index, note ->
+                FeedItem(note, shape = segmentShape(index, notes.size))
+            }
             if (notes.isEmpty()) {
                 item(key = "state") {
                     if (loading) {

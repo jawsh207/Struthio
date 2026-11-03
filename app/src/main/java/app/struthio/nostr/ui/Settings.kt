@@ -57,7 +57,7 @@ import org.json.JSONObject
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceBright,
         modifier = Modifier.fillMaxWidth(),
     ) {

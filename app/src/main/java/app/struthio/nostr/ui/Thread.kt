@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
@@ -83,11 +83,16 @@ fun ThreadScreen(screen: Screen.Thread) {
             LazyColumn(
                 Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = PageGutter, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 val list = notes.ifEmpty { listOf(focus!! to 0) }
-                items(list, key = { it.first.id }) { (event, depth) ->
-                    NoteCard(event, Modifier.padding(start = (minOf(depth, 3) * 12).dp), detail = event.id == screen.id)
+                itemsIndexed(list, key = { _, it -> it.first.id }) { index, (event, depth) ->
+                    NoteCard(
+                        event,
+                        Modifier.padding(start = (minOf(depth, 3) * 12).dp),
+                        detail = event.id == screen.id,
+                        shape = segmentShape(index, list.size),
+                    )
                 }
             }
             Surface(color = MaterialTheme.colorScheme.surfaceContainer) {

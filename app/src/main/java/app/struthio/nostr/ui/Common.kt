@@ -179,7 +179,7 @@ fun Loading(modifier: Modifier = Modifier.fillMaxWidth()) {
 
 /** Rows on a page are one card split into segments: big outer corners, small inner ones. */
 fun segmentShape(index: Int, count: Int): Shape {
-    val big = 28.dp
+    val big = 24.dp
     val small = 6.dp
     return RoundedCornerShape(
         topStart = if (index == 0) big else small,
