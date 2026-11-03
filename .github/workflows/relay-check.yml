@@ -1,0 +1,13 @@
+name: Relay check
+
+# Read-only: asks candidate relays what they offer and times them. Nothing is published.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: pip install --quiet websockets
+      - run: python3 scripts/relay-check.py
