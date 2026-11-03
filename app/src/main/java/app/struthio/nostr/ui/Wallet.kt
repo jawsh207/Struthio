@@ -12,16 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallMade
-import androidx.compose.material.icons.automirrored.filled.CallReceived
+import androidx.compose.material.icons.automirrored.rounded.CallMade
+import androidx.compose.material.icons.automirrored.rounded.CallReceived
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -74,7 +73,7 @@ fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
         }
         Surface(
             shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
+            color = MaterialTheme.colorScheme.surfaceBright,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         ) {
             Column(Modifier.padding(24.dp)) {
@@ -91,16 +90,18 @@ fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
                 }
             }
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)) {
-            items(transactions) { t ->
-                ListItem(
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            itemsIndexed(transactions) { index, t ->
+                CardRow(
+                    segmentShape(index, transactions.size),
+                    null,
                     headlineContent = {
                         Text(NumberFormat.getIntegerInstance().format(t.msats / 1000) + " sats")
                     },
                     supportingContent = t.description.takeIf { it.isNotBlank() }?.let { { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) } },
                     leadingContent = {
                         Icon(
-                            if (t.incoming) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
+                            if (t.incoming) Icons.AutoMirrored.Rounded.CallReceived else Icons.AutoMirrored.Rounded.CallMade,
                             if (t.incoming) "Received" else "Sent",
                         )
                     },
@@ -127,7 +128,7 @@ private fun ConnectWallet() {
     var busy by remember { mutableStateOf(false) }
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceBright,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

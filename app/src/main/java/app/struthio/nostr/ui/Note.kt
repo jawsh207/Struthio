@@ -21,10 +21,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -99,7 +99,7 @@ fun NoteCard(event: Event, modifier: Modifier = Modifier, boostedBy: String? = n
         onClick = { nav.push(Screen.Thread(event.id)) },
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceBright,
     ) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = if (boostedBy != null) 12.dp else 16.dp, bottom = 8.dp)) {
             boostedBy?.let { BoostLine(it) }
@@ -119,7 +119,7 @@ private fun BoostLine(pubkey: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(Icons.Filled.Repeat, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Rounded.Repeat, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             "${core.displayName(pubkey)} boosted",
             style = MaterialTheme.typography.labelMedium,
@@ -147,7 +147,7 @@ fun NoteHeader(event: Event) {
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (profile?.verified == true) {
-                    Icon(Icons.Filled.Verified, "Verified", Modifier.padding(start = 4.dp).size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Rounded.Verified, "Verified", Modifier.padding(start = 4.dp).size(14.dp), tint = MaterialTheme.colorScheme.primary)
                 }
                 Text(
                     " · " + relativeTime(event.createdAt),
@@ -256,7 +256,7 @@ private fun QuoteCard(ref: Entity.Note) {
         onClick = { nav.push(Screen.Thread(ref.id)) },
         modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             if (event == null) {
@@ -331,7 +331,7 @@ private fun Actions(event: Event) {
         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
             Row {
                 ActionButton(
-                    Icons.Filled.Repeat, count(stats.boosts.toLong()), stats.mineBoosted, colors.primaryContainer,
+                    Icons.Rounded.Repeat, count(stats.boosts.toLong()), stats.mineBoosted, colors.primaryContainer,
                     colors.onPrimaryContainer, "Boost or quote",
                 ) { boostMenu = true }
             }
@@ -347,14 +347,14 @@ private fun Actions(event: Event) {
             }
         }
         ActionButton(
-            if (stats.mineReacted) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+            if (stats.mineReacted) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
             count(stats.reactions.toLong()), stats.mineReacted, colors.secondaryContainer,
             colors.onSecondaryContainer, "Reactions",
         ) {
             if (!stats.mineReacted) scope.act(nav) { core.react(event) }
         }
         ActionButton(
-            if (stats.mineZapped) Icons.Filled.Bolt else Icons.Outlined.Bolt,
+            if (stats.mineZapped) Icons.Rounded.Bolt else Icons.Outlined.Bolt,
             count(stats.zapMsats / 1000), stats.mineZapped, colors.tertiaryContainer,
             colors.onTertiaryContainer, "Zaps", 1.15f,
         ) { zapping = true }
@@ -413,7 +413,7 @@ fun ZapSheet(event: Event?, recipient: String, onDismiss: () -> Unit) {
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             ) {
-                Icon(Icons.Filled.Bolt, null)
+                Icon(Icons.Rounded.Bolt, null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (busy) "Zapping…" else "Zap")
             }

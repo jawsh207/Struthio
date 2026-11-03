@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,23 +13,21 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -43,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -82,7 +82,7 @@ fun ProfileScreen(pubkey: String) {
 
     Column(Modifier.fillMaxSize()) {
         BackBar(core.displayName(pubkey)) {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
+            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text("Copy npub") }, onClick = {
                     menu = false
@@ -105,7 +105,7 @@ fun ProfileScreen(pubkey: String) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(core.displayName(pubkey), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
                             if (profile?.verified == true) {
-                                Icon(Icons.Filled.Verified, "Verified", Modifier.padding(start = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Rounded.Verified, "Verified", Modifier.padding(start = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                         profile?.nip05?.let { Text(it.removePrefix("_@"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -134,7 +134,7 @@ fun ProfileScreen(pubkey: String) {
                         FilledTonalIconButton({
                             nav.push(Screen.Chat(roomKey(setOf(pubkey, core.me ?: ""))))
                         }) { Icon(Icons.Outlined.ChatBubbleOutline, "Message") }
-                        FilledTonalIconButton({ zapping = true }) { Icon(Icons.Filled.Bolt, "Zap") }
+                        FilledTonalIconButton({ zapping = true }) { Icon(Icons.Rounded.Bolt, "Zap") }
                     }
                 }
             }
@@ -186,8 +186,8 @@ fun SearchScreen() {
             query,
             { query = it },
             placeholder = { Text("Notes, people, #tags, npub") },
-            leadingIcon = { Icon(Icons.Filled.Search, null) },
-            trailingIcon = { IconButton(onClick = ::submit) { Icon(Icons.Filled.Search, "Search") } },
+            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            trailingIcon = { IconButton(onClick = ::submit) { Icon(Icons.Rounded.Search, "Search") } },
             singleLine = true,
             shape = RoundedCornerShape(28.dp),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -195,10 +195,9 @@ fun SearchScreen() {
         if (feed != null) {
             NoteList(feed, Modifier.weight(1f).padding(top = 8.dp), empty = "No notes found.")
         } else {
-            LazyColumn(Modifier.weight(1f)) {
-                items(people, key = { it }) { pubkey ->
-                    PersonRow(core, pubkey) { nav.push(Screen.Profile(pubkey)) }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                itemsIndexed(people, key = { _, it -> it }) { index, pubkey ->
+                    PersonRow(core, pubkey, segmentShape(index, people.size)) { nav.push(Screen.Profile(pubkey)) }
                 }
             }
         }
@@ -206,12 +205,13 @@ fun SearchScreen() {
 }
 
 @Composable
-fun PersonRow(core: Core, pubkey: String, onClick: () -> Unit) {
+fun PersonRow(core: Core, pubkey: String, shape: Shape, onClick: () -> Unit) {
     LaunchedEffect(pubkey) { core.wantProfile(pubkey) }
-    ListItem(
+    CardRow(
+        shape,
+        onClick,
         headlineContent = { Text(core.displayName(pubkey)) },
         supportingContent = core.profiles[pubkey]?.nip05?.let { { Text(it) } },
         leadingContent = { Avatar(pubkey, 40.dp) },
-        modifier = Modifier.tap(onClick),
     )
 }

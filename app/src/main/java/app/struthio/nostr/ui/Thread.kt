@@ -13,7 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -116,7 +116,7 @@ fun ThreadScreen(screen: Screen.Thread) {
                         },
                         enabled = draft.isNotBlank() && !sending,
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, "Send")
+                        Icon(Icons.AutoMirrored.Rounded.Send, "Send")
                     }
                 }
             }
@@ -177,7 +177,7 @@ fun ComposeScreen(quoteId: String?) {
         quoted?.let {
             Surface(
                 shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = MaterialTheme.colorScheme.surfaceBright,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding(),
             ) {
                 Column(Modifier.padding(14.dp)) {

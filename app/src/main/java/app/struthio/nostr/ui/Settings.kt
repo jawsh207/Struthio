@@ -16,7 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -57,7 +57,7 @@ import org.json.JSONObject
 private fun Section(title: String, content: @Composable () -> Unit) {
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceBright,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -221,7 +221,7 @@ fun RelaysScreen() {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(relay.url.removePrefix("wss://"), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            IconButton({ relays.remove(relay) }) { Icon(Icons.Filled.Close, "Remove") }
+                            IconButton({ relays.remove(relay) }) { Icon(Icons.Rounded.Close, "Remove") }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(relay.read, { relay.read = !relay.read }, { Text("Read") })
@@ -261,7 +261,7 @@ fun RelaysScreen() {
                 dmRelays.toList().forEach { url ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(url.removePrefix("wss://"), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        IconButton({ dmRelays.remove(url) }) { Icon(Icons.Filled.Close, "Remove") }
+                        IconButton({ dmRelays.remove(url) }) { Icon(Icons.Rounded.Close, "Remove") }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

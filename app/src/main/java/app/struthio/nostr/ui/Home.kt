@@ -19,8 +19,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -95,12 +95,12 @@ fun HomeScreen() {
 private fun SearchPill(onSearch: () -> Unit, onSettings: () -> Unit) {
     Surface(
         onClick = onSearch,
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier = Modifier.fillMaxWidth().height(56.dp),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(12.dp))
             Text(
                 "Search notes, people, #tags",
@@ -114,7 +114,7 @@ private fun SearchPill(onSearch: () -> Unit, onSettings: () -> Unit) {
                 onClick = onSettings,
                 colors = IconButtonDefaults.filledTonalIconButtonColors(),
             ) {
-                Icon(Icons.Filled.Settings, "Settings")
+                Icon(Icons.Rounded.Settings, "Settings")
             }
         }
     }
@@ -133,7 +133,7 @@ private fun FeedSelector(selected: Int, onSelect: (Int) -> Unit) {
             Surface(
                 onClick = { onSelect(index) },
                 shape = RoundedCornerShape(topStart = start, bottomStart = start, topEnd = end, bottomEnd = end),
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceBright,
                 contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(if (active) 1.3f else 1f).height(44.dp),
             ) {

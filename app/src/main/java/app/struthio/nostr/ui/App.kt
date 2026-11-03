@@ -3,22 +3,25 @@ package app.struthio.nostr.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.NotificationsNone
-import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarDefaults
 import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -76,10 +79,10 @@ class Nav(private val scope: CoroutineScope, private val snackbar: SnackbarHostS
 private class Tab(val label: String, val on: ImageVector, val off: ImageVector)
 
 private val TABS = listOf(
-    Tab("Home", Icons.Filled.Home, Icons.Outlined.Home),
-    Tab("Messages", Icons.Filled.ChatBubble, Icons.Outlined.ChatBubbleOutline),
-    Tab("Wallet", Icons.Filled.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet),
-    Tab("Notifications", Icons.Filled.Notifications, Icons.Outlined.NotificationsNone),
+    Tab("Home", Icons.Rounded.Home, Icons.Outlined.Home),
+    Tab("Messages", Icons.Rounded.ChatBubble, Icons.Outlined.ChatBubbleOutline),
+    Tab("Wallet", Icons.Rounded.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet),
+    Tab("Notifications", Icons.Rounded.Notifications, Icons.Outlined.NotificationsNone),
 )
 
 @Composable
@@ -128,7 +131,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 if (top == null) {
-                    ShortNavigationBar {
+                    ShortNavigationBar(windowInsets = ShortNavigationBarDefaults.windowInsets.union(WindowInsets.ime)) {
                         TABS.forEachIndexed { index, item ->
                             val badge = when (index) {
                                 1 -> unreadDms

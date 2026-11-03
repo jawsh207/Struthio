@@ -9,6 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +26,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -126,12 +130,15 @@ fun Avatar(pubkey: String, size: Dp = 48.dp, onClick: (() -> Unit)? = null) {
     LaunchedEffect(pubkey) { core.wantProfile(pubkey) }
     val profile = core.profiles[pubkey]
     val index = pubkey.takeLast(2).toInt(16)
-    val shape = when (index % 5) {
+    val shape = when (index % 8) {
         0 -> MaterialShapes.Cookie9Sided
-        1 -> MaterialShapes.Clover4Leaf
-        2 -> MaterialShapes.Cookie7Sided
-        3 -> MaterialShapes.Puffy
-        else -> MaterialShapes.Sunny
+        1 -> MaterialShapes.Cookie7Sided
+        2 -> MaterialShapes.Sunny
+        3 -> MaterialShapes.Clover4Leaf
+        4 -> MaterialShapes.Pentagon
+        5 -> MaterialShapes.Arch
+        6 -> MaterialShapes.Gem
+        else -> MaterialShapes.Puffy
     }.toShape()
     val colors = MaterialTheme.colorScheme
     val (back, front) = when (index % 3) {
@@ -165,6 +172,40 @@ fun Loading(modifier: Modifier = Modifier.fillMaxWidth()) {
     Box(modifier, contentAlignment = Alignment.Center) {
         LoadingIndicator()
     }
+}
+
+/** Rows on a page are one card split into segments: big outer corners, small inner ones. */
+fun segmentShape(index: Int, count: Int): Shape {
+    val big = 28.dp
+    val small = 6.dp
+    return RoundedCornerShape(
+        topStart = if (index == 0) big else small,
+        topEnd = if (index == 0) big else small,
+        bottomStart = if (index == count - 1) big else small,
+        bottomEnd = if (index == count - 1) big else small,
+    )
+}
+
+@Composable
+fun CardRow(
+    shape: Shape,
+    onClick: (() -> Unit)?,
+    headlineContent: @Composable () -> Unit,
+    supportingContent: (@Composable () -> Unit)? = null,
+    leadingContent: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
+) {
+    val colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceBright)
+    var modifier = Modifier.fillMaxWidth().clip(shape)
+    if (onClick != null) modifier = modifier.clickable(onClick = onClick)
+    ListItem(
+        headlineContent = headlineContent,
+        supportingContent = supportingContent,
+        leadingContent = leadingContent,
+        trailingContent = trailingContent,
+        colors = colors,
+        modifier = modifier,
+    )
 }
 
 fun relativeTime(createdAt: Long, now: Long = System.currentTimeMillis() / 1000): String {
