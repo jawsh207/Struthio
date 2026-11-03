@@ -310,6 +310,15 @@ class ProtocolTest {
     }
 
     @Test
+    fun serversCanRevealMedia() {
+        assertEquals("video", mediaKind("video/mp4"))
+        assertEquals("video", mediaKind("application/vnd.apple.mpegurl"))
+        assertEquals("image", mediaKind("image/webp"))
+        assertNull(mediaKind("text/html"))
+        assertNull(mediaKind("application/pdf"))
+    }
+
+    @Test
     fun linkCardsReadOpenGraph() {
         val html = """<html><head><title>Fallback</title><meta property="og:title" content="Real title">
             <meta content="A summary" property='og:description'><meta property="og:image" content="https://a.example/i.png"></head>"""

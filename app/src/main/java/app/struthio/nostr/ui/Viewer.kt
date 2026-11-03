@@ -6,6 +6,7 @@ import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -173,6 +174,27 @@ fun LinkPreview(url: String) {
     val context = LocalContext.current
     val info by produceState<LinkInfo?>(null, url) { value = core.linkInfo(url) }
     val card = info ?: return
+    var viewing by remember { mutableStateOf(false) }
+    when (card.media) {
+        "video" -> {
+            VideoCard(url)
+            return
+        }
+        "image" -> {
+            NetImage(
+                url,
+                380.dp,
+                Modifier
+                    .padding(top = 10.dp)
+                    .fillMaxWidth()
+                    .aspectRatio(1.5f)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { viewing = true },
+            )
+            if (viewing) ImageViewer(listOf(url), 0) { viewing = false }
+            return
+        }
+    }
     Surface(
         onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } },
         modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),

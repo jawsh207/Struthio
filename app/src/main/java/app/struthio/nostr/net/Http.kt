@@ -56,12 +56,18 @@ object Http {
         }
     }
 
-    /** The start of an HTML page, which is where its card data lives. */
-    fun pageStart(url: String): String? {
+    class Page(val type: String, val html: String?)
+
+    /**
+     * What a link points at, from its headers. Only HTML has its body read, and only the start of
+     * it, so asking about a large video costs no more than the headers.
+     */
+    fun inspect(url: String): Page? {
         val conn = open(url, true)
         try {
             if (conn.responseCode !in 200..299) return null
-            if (conn.contentType?.contains("text/html", ignoreCase = true) != true) return null
+            val type = conn.contentType?.substringBefore(';')?.trim()?.lowercase() ?: return null
+            if (type != "text/html") return Page(type, null)
             conn.inputStream.use { input ->
                 val buffer = ByteArray(PAGE_START)
                 var filled = 0
@@ -70,7 +76,7 @@ object Http {
                     if (n < 0) break
                     filled += n
                 }
-                return String(buffer, 0, filled)
+                return Page(type, String(buffer, 0, filled))
             }
         } finally {
             conn.disconnect()

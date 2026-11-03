@@ -26,6 +26,7 @@ import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.core.chooseRelays
 import app.struthio.nostr.core.imetaTag
 import app.struthio.nostr.core.isPreviewable
+import app.struthio.nostr.core.mediaKind
 import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.core.parseFileMessage
@@ -1033,14 +1034,20 @@ class Core(private val context: Context) {
         if (file.exists()) {
             return@withContext runCatching {
                 val o = JSONObject(file.readText())
-                LinkInfo(url, o.getString("t"), o.getString("d"), o.optString("i").takeIf { it.isNotEmpty() })
+                LinkInfo(
+                    url, o.getString("t"), o.getString("d"), o.optString("i").takeIf { it.isNotEmpty() },
+                    o.optString("m").takeIf { it.isNotEmpty() },
+                )
             }.getOrNull()
         }
-        val info = previewSlots.withPermit { runCatching { Http.pageStart(url)?.let { parseLinkInfo(url, it) } }.getOrNull() }
-            ?.let { it.copy(title = decodeHtml(it.title), description = decodeHtml(it.description)) }
+        val page = previewSlots.withPermit { runCatching { Http.inspect(url) }.getOrNull() } ?: return@withContext null
+        val info = mediaKind(page.type)?.let { LinkInfo(url, "", "", null, it) }
+            ?: page.html?.let { parseLinkInfo(url, it) }?.let { it.copy(title = decodeHtml(it.title), description = decodeHtml(it.description)) }
         if (info != null) {
             previewDir.mkdirs()
-            file.writeText(JSONObject().put("t", info.title).put("d", info.description).put("i", info.image ?: "").toString())
+            file.writeText(
+                JSONObject().put("t", info.title).put("d", info.description).put("i", info.image ?: "").put("m", info.media ?: "").toString(),
+            )
         }
         info
     }

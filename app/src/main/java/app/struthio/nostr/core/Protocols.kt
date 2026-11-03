@@ -392,7 +392,21 @@ fun noteVideos(event: Event): List<String> {
     return links.filter { (it in declared || VIDEO_EXT.matches(it)) && it.startsWith("https://") }.distinct()
 }
 
-data class LinkInfo(val url: String, val title: String, val description: String, val image: String?)
+/** What a link turned out to be: a page to show as a card, or media to show directly. */
+data class LinkInfo(
+    val url: String,
+    val title: String,
+    val description: String,
+    val image: String?,
+    val media: String? = null,
+)
+
+/** "video" or "image" for media a server describes, from its Content-Type. */
+fun mediaKind(contentType: String): String? = when {
+    contentType.startsWith("video/") || contentType in STREAM_TYPES -> "video"
+    contentType.startsWith("image/") -> "image"
+    else -> null
+}
 
 private val META_TAG = Regex("""<meta\s[^>]*>""", RegexOption.IGNORE_CASE)
 private val TITLE_TAG = Regex("""<title[^>]*>([^<]{1,300})</title>""", RegexOption.IGNORE_CASE)
