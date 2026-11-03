@@ -11,6 +11,7 @@ import java.net.URL
 object Http {
     private const val MAX_JSON = 256 * 1024
     private const val MAX_FILE = 32 * 1024 * 1024
+    private const val PAGE_START = 96 * 1024
 
     private fun open(url: String, followRedirects: Boolean): HttpURLConnection {
         require(url.startsWith("https://")) { "only https is allowed" }
@@ -50,6 +51,27 @@ object Http {
         try {
             if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
             return read(conn, MAX_FILE)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** The start of an HTML page, which is where its card data lives. */
+    fun pageStart(url: String): String? {
+        val conn = open(url, true)
+        try {
+            if (conn.responseCode !in 200..299) return null
+            if (conn.contentType?.contains("text/html", ignoreCase = true) != true) return null
+            conn.inputStream.use { input ->
+                val buffer = ByteArray(PAGE_START)
+                var filled = 0
+                while (filled < buffer.size) {
+                    val n = input.read(buffer, filled, buffer.size - filled)
+                    if (n < 0) break
+                    filled += n
+                }
+                return String(buffer, 0, filled)
+            }
         } finally {
             conn.disconnect()
         }

@@ -73,6 +73,7 @@ import app.struthio.nostr.core.Media
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.Part
 import app.struthio.nostr.core.noteImages
+import app.struthio.nostr.core.noteVideos
 import app.struthio.nostr.core.parseContent
 import app.struthio.nostr.core.repostedEvent
 import app.struthio.nostr.core.values
@@ -82,6 +83,7 @@ import app.struthio.nostr.data.Stats
 @Composable
 fun FeedItem(event: Event, modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(24.dp)) {
     val core = LocalCore.current
+    if (core.deleted.containsKey(event.id)) return
     if (event.kind == Kind.REPOST) {
         val inner by produceState<Event?>(repostedEvent(event), event.id) {
             if (value == null) {
@@ -172,27 +174,59 @@ fun NoteHeader(event: Event) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        NoteMenu(event)
     }
 }
 
-private class Body(val parts: List<Part>, val images: List<Media>, val quotes: List<Entity.Note>)
+private class Body(
+    val parts: List<Part>,
+    val images: List<Media>,
+    val videos: List<String>,
+    val quotes: List<Entity.Note>,
+    val preview: String?,
+)
 
 @Composable
 fun NoteBody(event: Event, detail: Boolean = false, inQuote: Boolean = false) {
+    val warning = event.tags.firstOrNull { it.firstOrNull() == "content-warning" }
+    var revealed by remember(event.id) { mutableStateOf(false) }
+    if (warning != null && !revealed) {
+        Surface(
+            onClick = { revealed = true },
+            modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Sensitive content", style = MaterialTheme.typography.titleSmall)
+                warning.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text("Tap to show", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        return
+    }
+    NoteContent(event, detail, inQuote)
+}
+
+@Composable
+private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
     val core = LocalCore.current
     val nav = LocalNav.current
     val context = LocalContext.current
     val body = remember(event.id) {
         val images = noteImages(event)
-        val imageUrls = images.map { it.url }.toSet()
+        val videos = noteVideos(event)
+        val mediaUrls = images.map { it.url }.toSet() + videos
         val parts = parseContent(event.content)
         val quotes = parts.filterIsInstance<Part.Mention>().mapNotNull { it.entity as? Entity.Note }
         Body(
             parts.filterNot {
-                (it is Part.Link && it.url in imageUrls) || (it is Part.Mention && it.entity is Entity.Note)
+                (it is Part.Link && it.url in mediaUrls) || (it is Part.Mention && it.entity is Entity.Note)
             },
             images,
+            videos,
             quotes,
+            parts.filterIsInstance<Part.Link>().firstOrNull { it.url !in mediaUrls }?.url,
         )
     }
     val primary = MaterialTheme.colorScheme.primary
@@ -239,7 +273,8 @@ fun NoteBody(event: Event, detail: Boolean = false, inQuote: Boolean = false) {
     } else {
         Spacer(Modifier.height(4.dp))
     }
-    body.images.take(if (detail) 12 else 4).forEach { media ->
+    var viewing by remember(event.id) { mutableStateOf<Int?>(null) }
+    body.images.take(if (detail) 12 else 4).forEachIndexed { index, media ->
         NetImage(
             media.url,
             380.dp,
@@ -247,10 +282,16 @@ fun NoteBody(event: Event, detail: Boolean = false, inQuote: Boolean = false) {
                 .padding(top = 10.dp)
                 .fillMaxWidth()
                 .aspectRatio((media.aspect ?: 1.5f).coerceIn(0.7f, 2.4f))
-                .clip(RoundedCornerShape(20.dp)),
+                .clip(RoundedCornerShape(20.dp))
+                .clickable { viewing = index },
         )
     }
-    if (!inQuote) body.quotes.take(2).forEach { QuoteCard(it) }
+    viewing?.let { start -> ImageViewer(body.images.map { it.url }, start) { viewing = null } }
+    if (!inQuote) {
+        body.videos.take(2).forEach { VideoCard(it) }
+        if (body.images.isEmpty() && body.videos.isEmpty() && core.linkPreviewsEnabled()) body.preview?.let { LinkPreview(it) }
+        body.quotes.take(2).forEach { QuoteCard(it) }
+    }
 }
 
 @Composable

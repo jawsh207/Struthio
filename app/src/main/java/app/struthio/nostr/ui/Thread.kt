@@ -15,9 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +35,7 @@ import app.struthio.nostr.core.Event
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.data.FeedSource
 import app.struthio.nostr.data.Upload
+import kotlinx.coroutines.delay
 import app.struthio.nostr.data.Feed
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,7 +72,7 @@ fun ThreadScreen(screen: Screen.Thread) {
     val rootId = root ?: focus?.let { threadRef(it).root ?: it.id }
     val events by liveQuery(emptyList<Event>(), rootId) { rootId?.let(core.store::thread).orEmpty() }
     val notes = remember(events, rootId) { rootId?.let { ordered(events, it) }.orEmpty() }
-    var draft by remember { mutableStateOf("") }
+    val draft = remember { NoteDraft() }
     var sending by remember { mutableStateOf(false) }
     val attached = remember { mutableStateListOf<Upload>() }
 
@@ -104,29 +105,22 @@ fun ThreadScreen(screen: Screen.Thread) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     AttachImageButton { attached += it }
-                    OutlinedTextField(
-                        draft,
-                        { draft = it },
-                        placeholder = { Text("Add a comment") },
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4,
-                        modifier = Modifier.weight(1f),
-                    )
+                    NoteField(draft, "Add a comment", Modifier.weight(1f), maxLines = 4)
                     FilledIconButton(
                         onClick = {
                             val target = focus ?: return@FilledIconButton
                             sending = true
                             scope.act(nav) {
                                 try {
-                                    core.reply(target, draft.trim(), attached.toList())
-                                    draft = ""
+                                    core.reply(target, draft.finalText(core::mentionRelays), attached.toList())
+                                    draft.clear()
                                     attached.clear()
                                 } finally {
                                     sending = false
                                 }
                             }
                         },
-                        enabled = (draft.isNotBlank() || attached.isNotEmpty()) && !sending,
+                        enabled = (draft.value.text.isNotBlank() || attached.isNotEmpty()) && !sending,
                     ) {
                         Icon(Icons.AutoMirrored.Rounded.Send, "Send")
                     }
@@ -156,9 +150,18 @@ fun ComposeScreen(quoteId: String?) {
     val core = LocalCore.current
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
-    var text by remember { mutableStateOf("") }
+    val draft = remember { NoteDraft(if (quoteId == null) core.prefs.getString("note_draft", "").orEmpty() else "") }
     var sending by remember { mutableStateOf(false) }
+    var sensitive by remember { mutableStateOf(false) }
     val attached = remember { mutableStateListOf<Upload>() }
+    val text = draft.value.text
+    if (quoteId == null) {
+        // Saved as it is typed, so leaving the screen or the app loses nothing.
+        LaunchedEffect(text) {
+            delay(400)
+            core.prefs.edit().putString("note_draft", text).apply()
+        }
+    }
     val quoted by produceState<Event?>(null, quoteId) {
         if (quoteId != null) value = core.fetchEvent(quoteId)
     }
@@ -171,7 +174,12 @@ fun ComposeScreen(quoteId: String?) {
                     scope.act(nav) {
                         try {
                             val target = quoted
-                            if (target != null) core.quote(target, text.trim(), attached.toList()) else core.postNote(text.trim(), attached.toList())
+                            val body = draft.finalText(core::mentionRelays)
+                            if (target != null) core.quote(target, body, attached.toList()) else core.postNote(body, attached.toList(), sensitive)
+                            if (quoteId == null) {
+                                core.prefs.edit().remove("note_draft").apply()
+                                draft.clear()
+                            }
                             nav.pop()
                         } finally {
                             sending = false
@@ -182,13 +190,15 @@ fun ComposeScreen(quoteId: String?) {
                 modifier = Modifier.padding(end = 8.dp),
             ) { Text(if (sending) "Posting…" else "Post") }
         }
-        OutlinedTextField(
-            text,
-            { text = it },
-            placeholder = { Text("What's on your mind?") },
-            shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth().weight(1f).padding(PageGutter),
-        )
+        NoteField(draft, "What's on your mind?", Modifier.fillMaxWidth().weight(1f).padding(PageGutter))
+        if (quoteId == null) {
+            FilterChip(
+                sensitive,
+                { sensitive = !sensitive },
+                { Text("Sensitive content") },
+                Modifier.padding(horizontal = PageGutter),
+            )
+        }
         AttachedImages(attached) { attached.remove(it) }
         quoted?.let {
             Surface(

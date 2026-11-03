@@ -1,6 +1,10 @@
 package app.struthio.nostr.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
@@ -58,6 +62,7 @@ sealed interface Screen {
     data object Relays : Screen
     data object AccountCheck : Screen
     data object EditProfile : Screen
+    data object Bookmarks : Screen
 }
 
 class Nav(private val scope: CoroutineScope, private val snackbar: SnackbarHostState) {
@@ -123,6 +128,13 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
             return@CompositionLocalProvider
         }
         BackHandler(nav.stack.isNotEmpty()) { nav.pop() }
+        val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        LaunchedEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !core.prefs.getBoolean("asked_notifications", false)) {
+                core.prefs.edit().putBoolean("asked_notifications", true).apply()
+                askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         val top = nav.stack.lastOrNull()
         val me = signer!!.pubkey
         val alertsRead = core.prefs.getLong("alerts_read", 0L)
@@ -175,6 +187,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                     Screen.Relays -> RelaysScreen()
                     Screen.AccountCheck -> AccountCheckScreen()
                     Screen.EditProfile -> EditProfileScreen()
+                    Screen.Bookmarks -> BookmarksScreen()
                 }
             }
         }

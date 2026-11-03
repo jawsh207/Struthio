@@ -45,6 +45,7 @@ PY
 
 NPUB=npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6
 adb shell pm grant "$PKG" android.permission.CAMERA
+adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS
 tap_text "nsec, or npub to browse read-only"
 adb shell input text "$NPUB"
 sleep 1
@@ -107,6 +108,12 @@ for server in https://blossom.primal.net https://blossom.band; do
   curl -s -o /dev/null -m 10 -w "$server %{http_code}\n" "$server/" || echo "$server unreachable"
 done
 
+adb shell input keyevent 3
+sleep 3
+adb shell cmd jobscheduler run -f "$PKG" 1
+sleep 30
+echo "notifications posted: $(adb shell dumpsys notification --noredact | grep -c "pkg=$PKG")"
+adb shell dumpsys jobscheduler | grep -A3 "$PKG/" | grep -E "Periodic|period" | head -2
 adb logcat -d > smoke/logcat.txt
 if grep -E "FATAL EXCEPTION|ANR in $PKG" smoke/logcat.txt; then
   grep -A25 "FATAL EXCEPTION" smoke/logcat.txt | head -60

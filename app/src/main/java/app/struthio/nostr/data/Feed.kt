@@ -20,6 +20,7 @@ sealed interface FeedSource {
     data class Author(val pubkey: String) : FeedSource
     data class Hashtag(val tag: String) : FeedSource
     data class Search(val query: String) : FeedSource
+    data object Bookmarks : FeedSource
 }
 
 /** One list of notes: cache first, then live from the relays that matter for it. */
@@ -36,6 +37,10 @@ class Feed(private val core: Core, private val source: FeedSource) {
 
     private val kinds = listOf(Kind.NOTE, Kind.REPOST)
 
+    /** The trusted network applies to discovery feeds only, never to replies or notifications. */
+    private val filtered: Boolean
+        get() = (source == FeedSource.Global || source == FeedSource.Trending) && core.trustFilterActive()
+
     fun start() {
         if (started) return
         started = true
@@ -44,6 +49,7 @@ class Feed(private val core: Core, private val source: FeedSource) {
             when (source) {
                 FeedSource.Trending -> loadTrending()
                 is FeedSource.Search -> loadSearch(source.query)
+                FeedSource.Bookmarks -> loadBookmarks()
                 else -> subscribe()
             }
             loading.value = false
@@ -68,6 +74,7 @@ class Feed(private val core: Core, private val source: FeedSource) {
             FeedSource.Following -> core.store.followingFeed(PAGE, now)
             is FeedSource.Author -> core.store.authorNotes(source.pubkey, PAGE, now)
             is FeedSource.Search -> core.store.searchNotes(source.query, PAGE)
+            FeedSource.Bookmarks -> core.bookmarks.value.mapNotNull(core.store::event)
             else -> emptyList()
         }
         cached.forEach { add(it) }
@@ -80,7 +87,8 @@ class Feed(private val core: Core, private val source: FeedSource) {
         tags = (source as? FeedSource.Hashtag)?.let { mapOf("t" to listOf(it.tag.lowercase())) } ?: emptyMap(),
         since = since,
         until = until,
-        limit = PAGE,
+        // Most of an open stream is dropped by the filter, so ask for more of it.
+        limit = if (filtered) PAGE * 4 else PAGE,
     )
 
     private suspend fun subscribe() {
@@ -115,7 +123,9 @@ class Feed(private val core: Core, private val source: FeedSource) {
     private fun add(event: Event) {
         if (event.pubkey in core.muted.value) return
         if (event.isExpired()) return
-        if (source !is FeedSource.Author && source !is FeedSource.Search && threadRef(event).root != null) return
+        val keepsReplies = source is FeedSource.Author || source is FeedSource.Search || source == FeedSource.Bookmarks
+        if (!keepsReplies && threadRef(event).root != null) return
+        if (filtered && event.pubkey !in core.trustedNow()) return
         synchronized(byId) { byId.putIfAbsent(event.id, event) }
     }
 
@@ -158,12 +168,14 @@ class Feed(private val core: Core, private val source: FeedSource) {
     /** What the relays are reacting to right now, counted here rather than taken from a ranking service. */
     private suspend fun loadTrending() {
         val score = HashMap<String, Int>()
+        val trusted = if (filtered) core.trustedNow() else null
         val since = nowSeconds() - 86400
         core.pool.query(
             Core.DEFAULT_RELAYS.toSet(),
             listOf(Filter(kinds = listOf(Kind.REACTION, Kind.REPOST), since = since, limit = 800)),
             8000,
         ) { e, _ ->
+            if (trusted != null && e.pubkey !in trusted) return@query
             e.tags.values("e").lastOrNull()?.let { id ->
                 synchronized(score) { score[id] = (score[id] ?: 0) + if (e.kind == Kind.REPOST) 3 else 1 }
             }
@@ -178,8 +190,16 @@ class Feed(private val core: Core, private val source: FeedSource) {
         val rank = top.withIndex().associate { it.value to it.index }
         val muted = core.muted.value
         notes.value = synchronized(found) {
-            found.distinctBy { it.id }.filter { it.pubkey !in muted }.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+            found.distinctBy { it.id }.filter { it.pubkey !in muted && (trusted == null || it.pubkey in trusted) }.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
         }
+    }
+
+    private suspend fun loadBookmarks() {
+        val missing = core.bookmarks.value.filter { core.store.event(it) == null }
+        if (missing.isNotEmpty()) {
+            core.pool.query(core.readRelays() + Core.DEFAULT_RELAYS, listOf(Filter(ids = missing)), 6000, ::receive)
+        }
+        flush()
     }
 
     /** NIP-50 on search relays, added to whatever the local cache already matched. */

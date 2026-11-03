@@ -16,12 +16,14 @@ object Kind {
     const val GENERIC_REPOST = 16
     const val GIFT_WRAP = 1059
     const val COMMENT = 1111
+    const val REPORT = 1984
     const val ZAP_REQUEST = 9734
     const val ZAP_RECEIPT = 9735
     const val MUTES = 10000
     const val RELAYS = 10002
     const val SEARCH_RELAYS = 10007
     const val DM_RELAYS = 10050
+    const val BOOKMARKS = 10003
     const val MEDIA_SERVERS = 10063
     const val NWC_INFO = 13194
     const val AUTH = 22242

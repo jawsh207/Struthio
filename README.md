@@ -10,6 +10,9 @@ A small, fast Nostr client for Android, built with Kotlin and Jetpack Compose in
 - Lightning wallet through Nostr Wallet Connect
 - Image uploads, QR scanning and emoji reactions
 - Notifications, search, profiles, and follower and following lists
+- Background notification checks every 15 minutes by default, through Android's own scheduler
+- Bookmarks, drafts, content warnings, @mentions, reporting, video and link previews
+- A follows-of-follows filter for Global and Trending
 
 ## Protocol
 
@@ -27,13 +30,15 @@ Struthio implements the current form of each specification and writes no depreca
 | 22 | Comments on kinds other than notes |
 | 24 | Metadata fields |
 | 25 | Reactions |
+| 36 | Content warnings |
 | 40 | Expiration |
 | 42 | Relay authentication, only when a relay demands it |
 | 45 | Follower counts |
 | 47 | Nostr Wallet Connect, NIP-44 only |
 | 50 | Search |
-| 51 | Mute list, search relays |
+| 51 | Mute list, bookmarks, search relays |
 | 55 | External signer apps |
+| 56 | Reports |
 | 57 | Zaps, including split tags and receipt validation |
 | 65 | Relay lists and the outbox model |
 | 92 | Media attachments |
@@ -48,7 +53,7 @@ Not used on purpose: NIP-04, NIP-06, NIP-08, NIP-26, NIP-96 and relay lists insi
 - Google Sans Flex is reduced to its weight axis, from 3.9 MB to 280 KB.
 - Signature checks are skipped only for events already verified in the session.
 - Photos are re-encoded before upload, which removes EXIF data such as location.
-- Sockets close when the app leaves the screen. Nothing runs in the background.
+- Sockets close shortly after the app leaves the screen. Between scheduled checks, nothing runs in the background.
 - One APK per CPU architecture; the launcher icon is vector only.
 
 ## Testing on a device

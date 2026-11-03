@@ -285,6 +285,47 @@ class ProtocolTest {
         assertTrue(refused.isFailure)
     }
 
+    @Test
+    fun trustedNetworkNeedsMoreThanOneVoucher() {
+        val me = "m".repeat(64)
+        val network = trustedNetwork(me, setOf("a", "b"), listOf(listOf("c", "d", "d"), listOf("c")), 2)
+        assertEquals(setOf(me, "a", "b", "c"), network)
+    }
+
+    @Test
+    fun videosComeFromImetaOrExtension() {
+        val e = event(Kind.NOTE, listOf(listOf("imeta", "url https://a.example/clip", "m video/mp4")), "https://a.example/clip https://a.example/b.webm https://a.example/c.png")
+        assertEquals(listOf("https://a.example/clip", "https://a.example/b.webm"), noteVideos(e))
+        assertEquals(1, noteImages(e).size)
+    }
+
+    @Test
+    fun linkCardsReadOpenGraph() {
+        val html = """<html><head><title>Fallback</title><meta property="og:title" content="Real title">
+            <meta content="A summary" property='og:description'><meta property="og:image" content="https://a.example/i.png"></head>"""
+        val info = parseLinkInfo("https://a.example/page", html)!!
+        assertEquals("Real title", info.title)
+        assertEquals("A summary", info.description)
+        assertEquals("https://a.example/i.png", info.image)
+        assertEquals("Only", parseLinkInfo("https://a.example", "<title>Only</title>")!!.title)
+        assertNull(parseLinkInfo("https://a.example", "<p>nothing</p>"))
+    }
+
+    @Test
+    fun previewsStayOffPrivateAddresses() {
+        assertTrue(isPreviewable("https://example.com/a"))
+        assertFalse(isPreviewable("http://example.com/a"))
+        assertFalse(isPreviewable("https://192.168.1.1/admin"))
+        assertFalse(isPreviewable("https://router.local/"))
+        assertFalse(isPreviewable("https://localhost/"))
+    }
+
+    @Test
+    fun reportsNameThePersonAndTheNote() {
+        val note = event(Kind.NOTE, emptyList())
+        assertEquals(listOf(listOf("p", note.pubkey, "spam"), listOf("e", note.id, "spam")), reportTags(note, "spam"))
+    }
+
     private fun event(kind: Int, tags: Tags, content: String = "x"): Event {
         val signer = LocalSigner(Keys.generate())
         return signer.signNow(Draft(signer.pubkey, 1700000000, kind, tags, content))

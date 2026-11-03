@@ -79,11 +79,20 @@ private class FakeRelay(private val onRequest: (JSONArray, (String) -> Unit, () 
 
 class RelayPoolTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val pool = RelayPool(scope) { null }
+    private val pool = RelayPool(scope) { null }.apply { activityStarted() }
     private val filter = listOf(Filter(kinds = listOf(Kind.FOLLOWS)))
 
     @After
     fun tearDown() = scope.cancel()
+
+    @Test
+    fun aHiddenPoolOpensNoConnections() = runBlocking {
+        val relay = FakeRelay { message, send, _ -> send("""["EOSE","${message.getString(1)}"]""") }
+        val hidden = RelayPool(scope) { null }
+        assertTrue(hidden.query(setOf(relay.url), filter, 500) { _, _ -> }.isEmpty())
+        assertEquals(0, relay.connections.get())
+        relay.close()
+    }
 
     @Test
     fun endOfStoredEventsCountsAsAnAnswer() = runBlocking {

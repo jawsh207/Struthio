@@ -44,10 +44,31 @@ data class Dm(
 
 data class Room(val key: String, val members: List<String>, val last: Dm)
 
-data class Alert(val event: Event, val actor: String, val msats: Long, val comment: String)
+data class Alert(val event: Event, val actor: String, val msats: Long, val comment: String) {
+    /** The note to open for this alert. */
+    val target: String?
+        get() = when (event.kind) {
+            Kind.NOTE, Kind.COMMENT -> event.id
+            else -> event.tags.values("e").lastOrNull()
+        }
+
+    fun headline(name: String): String = when (event.kind) {
+        Kind.REACTION -> "$name reacted ${reactionGlyph(event.content).orEmpty()}".trim()
+        Kind.REPOST, Kind.GENERIC_REPOST -> "$name boosted your note"
+        Kind.ZAP_RECEIPT -> "$name zapped ${msats / 1000} sats"
+        else -> "$name replied or mentioned you"
+    }
+
+    val detail: String
+        get() = when (event.kind) {
+            Kind.REACTION, Kind.REPOST, Kind.GENERIC_REPOST -> ""
+            Kind.ZAP_RECEIPT -> comment
+            else -> event.content
+        }
+}
 
 /** Local cache on the platform's SQLite: the first thing every screen shows. */
-class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 2) {
+class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 3) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
@@ -82,10 +103,12 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 2
         db.execSQL("CREATE INDEX dms_room ON dms(room, created_at DESC)")
         db.execSQL("CREATE TABLE wraps(id TEXT PRIMARY KEY)")
         db.execSQL("CREATE TABLE follows(pubkey TEXT PRIMARY KEY)")
+        db.execSQL("CREATE TABLE trusted(pubkey TEXT PRIMARY KEY)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE dms ADD COLUMN file TEXT")
+        if (oldVersion < 3) db.execSQL("CREATE TABLE trusted(pubkey TEXT PRIMARY KEY)")
     }
 
     /** Stores a batch and returns what is new. */
@@ -259,6 +282,24 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 2
         } finally {
             db.endTransaction()
         }
+    }
+
+    fun setTrusted(pubkeys: Collection<String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("trusted", null, null)
+            pubkeys.forEach { db.execSQL("INSERT OR IGNORE INTO trusted(pubkey) VALUES(?)", arrayOf(it)) }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun trusted(): Set<String> {
+        val out = HashSet<String>()
+        readableDatabase.rawQuery("SELECT pubkey FROM trusted", null).use { while (it.moveToNext()) out += it.getString(0) }
+        return out
     }
 
     fun stats(ids: List<String>, me: String?): Map<String, Stats> {
@@ -466,7 +507,7 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 2
 
     fun clearAll() {
         val db = writableDatabase
-        for (table in listOf("refs", "zaps", "providers", "dms", "wraps", "follows", "events")) db.delete(table, null, null)
+        for (table in listOf("refs", "zaps", "providers", "dms", "wraps", "follows", "trusted", "events")) db.delete(table, null, null)
         db.execSQL("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')")
     }
 

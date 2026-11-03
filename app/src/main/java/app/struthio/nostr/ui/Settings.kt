@@ -2,6 +2,7 @@ package app.struthio.nostr.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,11 +28,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -51,6 +54,7 @@ import app.struthio.nostr.core.RelayList
 import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.ExternalSigner
+import app.struthio.nostr.data.Notifier
 import app.struthio.nostr.data.SignerBridge
 import org.json.JSONObject
 
@@ -69,6 +73,17 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
+private fun ToggleRow(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked, onChange)
+    }
+}
+
+@Composable
 fun SettingsScreen() {
     val core = LocalCore.current
     val nav = LocalNav.current
@@ -76,6 +91,9 @@ fun SettingsScreen() {
     val scope = rememberCoroutineScope()
     val me = core.me ?: return
     var copying by remember { mutableStateOf(false) }
+    var interval by remember { mutableIntStateOf(core.notifyMinutes()) }
+    var trustFilter by remember { mutableStateOf(core.trustFilterEnabled()) }
+    var linkPreviews by remember { mutableStateOf(core.linkPreviewsEnabled()) }
     var servers by remember { mutableStateOf(core.mediaServers().joinToString("\n")) }
     var revealed by remember { mutableStateOf<String?>(null) }
     var confirmReveal by remember { mutableStateOf(false) }
@@ -97,6 +115,7 @@ fun SettingsScreen() {
                     }) { Text("Copy npub") }
                     OutlinedButton({ nav.push(Screen.Profile(me)) }) { Text("View profile") }
                 }
+                OutlinedButton({ nav.push(Screen.Bookmarks) }) { Text("Bookmarks") }
                 if (core.secure.get(Core.KEY_SECRET) != null) {
                     if (revealed == null) {
                         OutlinedButton({ confirmReveal = true }) { Text("Back up private key") }
@@ -130,6 +149,33 @@ fun SettingsScreen() {
                     },
                     enabled = !copying,
                 ) { Text(if (copying) "Copying…" else "Copy my lists to popular relays") }
+            }
+            Section("Notifications") {
+                Text("How often Struthio checks for new activity. Android may delay checks when the phone is idle.", style = MaterialTheme.typography.bodyMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Notifier.INTERVALS.forEach { minutes ->
+                        val label = when {
+                            minutes == 0 -> "Off"
+                            minutes < 60 -> "$minutes min"
+                            minutes == 60 -> "1 hour"
+                            else -> "${minutes / 60} hours"
+                        }
+                        FilterChip(interval == minutes, {
+                            interval = minutes
+                            core.setNotifyMinutes(minutes)
+                        }, { Text(label) })
+                    }
+                }
+            }
+            Section("Feeds") {
+                ToggleRow("Trusted network", "Global and Trending show only people you follow and the people they follow.", trustFilter) {
+                    trustFilter = it
+                    core.setTrustFilter(it)
+                }
+                ToggleRow("Link previews", "Shows a card for links. Each linked site can see your IP address.", linkPreviews) {
+                    linkPreviews = it
+                    core.setLinkPreviews(it)
+                }
             }
             Section("Media servers") {
                 Text("Images and files you send are stored here. One server per line.", style = MaterialTheme.typography.bodyMedium)

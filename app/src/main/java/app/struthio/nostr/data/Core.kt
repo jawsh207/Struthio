@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import app.struthio.nostr.core.Draft
 import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.DEFAULT_REACTION
+import app.struthio.nostr.core.LinkInfo
 import app.struthio.nostr.core.Event
 import app.struthio.nostr.core.FileCipher
 import app.struthio.nostr.core.FileMessage
@@ -24,23 +25,29 @@ import app.struthio.nostr.core.Tags
 import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.core.chooseRelays
 import app.struthio.nostr.core.imetaTag
+import app.struthio.nostr.core.isPreviewable
 import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.core.parseFileMessage
+import app.struthio.nostr.core.parseLinkInfo
 import app.struthio.nostr.core.parseRelayList
 import app.struthio.nostr.core.prepareContent
 import app.struthio.nostr.core.randomBytes
 import app.struthio.nostr.core.replyTags
+import app.struthio.nostr.core.reportTags
 import app.struthio.nostr.core.roomOf
 import app.struthio.nostr.core.secureRandom
 import app.struthio.nostr.core.sha256
+import app.struthio.nostr.core.tagsToJson
 import app.struthio.nostr.core.threadRef
+import app.struthio.nostr.core.trustedNetwork
 import app.struthio.nostr.core.values
 import app.struthio.nostr.core.zapSplits
 import app.struthio.nostr.net.Bech32Lnurl
 import app.struthio.nostr.net.Http
 import app.struthio.nostr.net.RelayPool
 import app.struthio.nostr.net.Subscription
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -54,7 +61,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -84,11 +93,19 @@ class Core(private val context: Context) {
     val pool = RelayPool(scope) { signer.value }
     val wallet = Wallet(this)
     val media = MediaUploader(this, context)
+    private val previewDir = File(context.cacheDir, "previews")
+    private val previewSlots = Semaphore(3)
 
     val signer = MutableStateFlow<Signer?>(null)
 
     /** True once the account's own lists have been asked for, so an empty list really is empty. */
     val sessionLoaded = MutableStateFlow(false)
+
+    /** Completes once a saved account has been restored, for work that starts without the UI. */
+    private val ready = CompletableDeferred<Unit>()
+    val bookmarks = MutableStateFlow<Set<String>>(emptySet())
+    val deleted = mutableStateMapOf<String, Boolean>()
+    private val trustedSet = MutableStateFlow<Set<String>>(emptySet())
     val me: String? get() = signer.value?.pubkey
 
     val profiles = mutableStateMapOf<String, Profile>()
@@ -117,6 +134,7 @@ class Core(private val context: Context) {
         scope.launch { ingestLoop() }
         scope.launch {
             restoreAccount()
+            ready.complete(Unit)
             store.prune(me, CACHE_EVENTS)
             Http.trimCache(imageDir, IMAGE_CACHE_BYTES)
         }
@@ -152,6 +170,7 @@ class Core(private val context: Context) {
             }
             Kind.FOLLOWS -> if (e.pubkey == me) applyFollows(e)
             Kind.MUTES -> if (e.pubkey == me) scope.launch { applyMutes(e) }
+            Kind.BOOKMARKS -> if (e.pubkey == me) scope.launch { applyBookmarks(e) }
             Kind.DM_RELAYS -> if (e.pubkey == me) {
                 dmRelays.value = e.tags.values("relay").mapNotNull(::normalizeRelay)
             }
@@ -179,6 +198,21 @@ class Core(private val context: Context) {
             }
         }
         muted.value = set
+    }
+
+    private suspend fun privateItems(e: Event, name: String): List<String> {
+        val active = signer.value ?: return emptyList()
+        if (e.content.isBlank() || e.content.contains("?iv=")) return emptyList()
+        return runCatching {
+            val list = org.json.JSONArray(active.nip44Decrypt(e.content, active.pubkey))
+            (0 until list.length()).mapNotNull { i ->
+                list.optJSONArray(i)?.takeIf { it.optString(0) == name }?.optString(1)
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private suspend fun applyBookmarks(e: Event) {
+        bookmarks.value = (e.tags.values("e") + privateItems(e, "e")).filter(Hex::isKey).toSet()
     }
 
     private fun publishProfile(profile: Profile) {
@@ -358,6 +392,7 @@ class Core(private val context: Context) {
         signer.value = active
         applyCachedMutes(pubkey)
         wantProfile(pubkey)
+        Notifier.schedule(context, notifyMinutes())
         startSession()
     }
 
@@ -365,10 +400,12 @@ class Core(private val context: Context) {
         store.latest(pubkey, Kind.FOLLOWS)?.let(::applyFollows)
         store.latest(pubkey, Kind.RELAYS)?.let { myRelays.value = parseRelayList(it).orDefaults() }
         store.latest(pubkey, Kind.DM_RELAYS)?.let { dmRelays.value = it.tags.values("relay").mapNotNull(::normalizeRelay) }
+        trustedSet.value = store.trusted()
     }
 
     private suspend fun applyCachedMutes(pubkey: String) {
         store.latest(pubkey, Kind.MUTES)?.let { applyMutes(it) }
+        store.latest(pubkey, Kind.BOOKMARKS)?.let { applyBookmarks(it) }
     }
 
     /** A new account gets a key, a profile and the relay lists others need to reach it. */
@@ -416,8 +453,12 @@ class Core(private val context: Context) {
         wallet.disconnect()
         prefs.edit().clear().apply()
         store.clearAll()
+        Notifier.schedule(context, 0)
+        Notifier.clear(context)
         signer.value = null
         sessionLoaded.value = false
+        bookmarks.value = emptySet()
+        trustedSet.value = emptySet()
         follows.value = emptySet()
         muted.value = emptySet()
         dmRelays.value = emptyList()
@@ -444,6 +485,7 @@ class Core(private val context: Context) {
                 delay(300)
             }
             sessionLoaded.value = true
+            refreshTrustedNetwork()
             // Our own zap provider, so that received zaps can be validated (NIP-57 Appendix F).
             store.latest(pubkey, Kind.METADATA)?.let(::parseProfile)?.let { profile ->
                 runCatching { lnurlInfo(profile) }.getOrNull()?.let { store.setProvider(pubkey, it.nostrPubkey, nowSeconds()) }
@@ -495,17 +537,57 @@ class Core(private val context: Context) {
 
     private fun author(): String = me ?: throw UserError("Sign in first.")
 
+    fun mentionRelays(pubkey: String): List<String> = relaysOf(pubkey)?.write.orEmpty().take(2)
+
     fun hintFor(id: String): String = store.relayOf(id)?.takeIf { it.isNotEmpty() } ?: writeRelays().firstOrNull() ?: ""
+
+    /** NIP-09. Relays decide whether to honour this, which the confirmation says. */
+    suspend fun deleteNote(event: Event) {
+        publish(Draft(author(), nowSeconds(), Kind.DELETION, listOf(listOf("e", event.id), listOf("k", event.kind.toString())), ""))
+        withContext(Dispatchers.Main) { deleted[event.id] = true }
+    }
+
+    /** NIP-56. */
+    suspend fun report(event: Event, type: String) {
+        publish(Draft(author(), nowSeconds(), Kind.REPORT, reportTags(event, type), ""))
+    }
+
+    /** Bookmarks stay private: the list is encrypted to ourselves, as NIP-51 provides. */
+    suspend fun setBookmarked(event: Event, saved: Boolean) = followsLock.withLock {
+        val active = signer.value ?: throw UserError("Sign in first.")
+        val me = active.pubkey
+        if (!latestFromRelays(me, Kind.BOOKMARKS)) throw UserError("Could not reach your relays. Try again.")
+        val current = store.latest(me, Kind.BOOKMARKS)
+        if (current != null && current.content.contains("?iv=")) {
+            throw UserError("Your bookmarks use an old format that Struthio will not overwrite.")
+        }
+        val items = ArrayList<List<String>>()
+        if (current != null && current.content.isNotBlank()) {
+            val list = org.json.JSONArray(active.nip44Decrypt(current.content, me, background = false))
+            for (i in 0 until list.length()) {
+                val tag = list.optJSONArray(i) ?: continue
+                items += List(tag.length()) { tag.optString(it) }
+            }
+        }
+        items.removeAll { it.size >= 2 && it[0] == "e" && it[1] == event.id }
+        if (saved) items += listOf("e", event.id, hintFor(event.id))
+        val content = active.nip44Encrypt(tagsToJson(items), me)
+        val publicTags = current?.tags.orEmpty().filterNot { it.size >= 2 && it[0] == "e" && it[1] == event.id }
+        val published = publish(Draft(me, nowSeconds(), Kind.BOOKMARKS, publicTags, content))
+        delay(100)
+        applyBookmarks(published)
+    }
 
     private fun withMedia(text: String, media: List<Upload>): Pair<String, List<List<String>>> {
         val body = (listOf(text.trim()) + media.map { it.url }).filter { it.isNotEmpty() }.joinToString("\n")
         return body to media.map { imetaTag(it.url, it.type, it.sha256, it.width, it.height, it.size) }
     }
 
-    suspend fun postNote(text: String, media: List<Upload> = emptyList()): Event {
+    suspend fun postNote(text: String, media: List<Upload> = emptyList(), sensitive: Boolean = false): Event {
         val (body, imeta) = withMedia(text, media)
         val (content, tags) = prepareContent(body)
-        return publish(Draft(author(), nowSeconds(), Kind.NOTE, tags + imeta, content))
+        val warning = if (sensitive) listOf(listOf("content-warning")) else emptyList()
+        return publish(Draft(author(), nowSeconds(), Kind.NOTE, tags + imeta + warning, content))
     }
 
     suspend fun reply(parent: Event, text: String, media: List<Upload> = emptyList()): Event {
@@ -723,9 +805,10 @@ class Core(private val context: Context) {
 
     // Private messages (NIP-17, NIP-59)
 
-    private suspend fun receiveWrap(wrap: Event) {
-        if (store.hasWrap(wrap.id)) return
-        val active = signer.value ?: return
+    /** Stores the message inside a gift wrap and returns its sender, when it can be opened. */
+    private suspend fun receiveWrap(wrap: Event): String? {
+        if (store.hasWrap(wrap.id)) return null
+        val active = signer.value ?: return null
         try {
             val seal = Event.parse(active.nip44Decrypt(wrap.content, wrap.pubkey)) ?: throw IllegalStateException()
             check(seal.kind == Kind.SEAL && seal.isValid() && seal.tags.isEmpty())
@@ -743,12 +826,14 @@ class Core(private val context: Context) {
             }
             store.addWrap(wrap.id)
             prefs.edit().putLong("dm_since", maxOf(prefs.getLong("dm_since", 0L), wrap.createdAt)).apply()
+            return rumor.pubkey
         } catch (_: IllegalStateException) {
             // A signer that needs approval leaves the wrap for later; anything else is unreadable.
             if (active is LocalSigner) store.addWrap(wrap.id)
         } catch (_: Exception) {
             if (active is LocalSigner) store.addWrap(wrap.id)
         }
+        return null
     }
 
     private suspend fun wrapFor(rumorJson: String, recipient: String, active: Signer): Event {
@@ -921,6 +1006,127 @@ class Core(private val context: Context) {
         "Copied ${lists.size} lists to ${reached.size} of ${targets.size} relays"
     }
 
+    // Link previews
+
+    fun linkPreviewsEnabled() = prefs.getBoolean("link_previews", true)
+
+    fun setLinkPreviews(on: Boolean) = prefs.edit().putBoolean("link_previews", on).apply()
+
+    /** Open Graph data for a link, cached on disk so that each site is asked once. */
+    suspend fun linkInfo(url: String): LinkInfo? = withContext(Dispatchers.IO) {
+        if (!isPreviewable(url)) return@withContext null
+        val file = File(previewDir, Hex.encode(sha256(url.toByteArray())))
+        if (file.exists()) {
+            return@withContext runCatching {
+                val o = JSONObject(file.readText())
+                LinkInfo(url, o.getString("t"), o.getString("d"), o.optString("i").takeIf { it.isNotEmpty() })
+            }.getOrNull()
+        }
+        val info = previewSlots.withPermit { runCatching { Http.pageStart(url)?.let { parseLinkInfo(url, it) } }.getOrNull() }
+            ?.let { it.copy(title = decodeHtml(it.title), description = decodeHtml(it.description)) }
+        if (info != null) {
+            previewDir.mkdirs()
+            file.writeText(JSONObject().put("t", info.title).put("d", info.description).put("i", info.image ?: "").toString())
+        }
+        info
+    }
+
+    private fun decodeHtml(text: String) =
+        android.text.Html.fromHtml(text, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+
+    // Trusted network
+
+    fun trustFilterEnabled() = prefs.getBoolean("trust_filter", true)
+
+    fun setTrustFilter(on: Boolean) = prefs.edit().putBoolean("trust_filter", on).apply()
+
+    /** With no follows yet there is no network to go by, so nothing is hidden. */
+    fun trustFilterActive() = trustFilterEnabled() && trustedSet.value.size > follows.value.size
+
+    fun trustedNow(): Set<String> = trustedSet.value
+
+    /** Reads what the people you follow follow, keeps only the result, and does so once a day. */
+    private suspend fun refreshTrustedNetwork() {
+        val pubkey = me ?: return
+        val mine = follows.value
+        if (mine.isEmpty() || !trustFilterEnabled()) return
+        val now = nowSeconds()
+        if (now - prefs.getLong("trusted_at", 0L) < 86400 && trustedSet.value.isNotEmpty()) return
+        val lists = HashMap<String, Event>()
+        for (chunk in mine.toList().chunked(MAX_AUTHORS)) {
+            pool.query(
+                (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + readRelays().take(2),
+                listOf(Filter(authors = chunk, kinds = listOf(Kind.FOLLOWS))),
+                10_000,
+            ) { e, _ ->
+                synchronized(lists) { if ((lists[e.pubkey]?.createdAt ?: 0) < e.createdAt) lists[e.pubkey] = e }
+            }
+        }
+        val theirs = synchronized(lists) { lists.values.map { it.tags.values("p").filter(Hex::isKey) } }
+        if (theirs.isEmpty()) return
+        val network = trustedNetwork(pubkey, mine, theirs, TRUST_THRESHOLD)
+        store.setTrusted(network)
+        trustedSet.value = network
+        prefs.edit().putLong("trusted_at", now).apply()
+    }
+
+    // Background notifications
+
+    fun notifyMinutes() = prefs.getInt("notify_minutes", Notifier.DEFAULT_MINUTES)
+
+    fun setNotifyMinutes(minutes: Int) {
+        prefs.edit().putInt("notify_minutes", minutes).apply()
+        Notifier.schedule(context, minutes)
+    }
+
+    /** One scheduled check: connect briefly, fetch what is new, notify, disconnect. */
+    suspend fun backgroundCheck() {
+        ready.await()
+        val active = signer.value ?: return
+        val pubkey = active.pubkey
+        val now = nowSeconds()
+        val since = prefs.getLong("notify_since", now - 3600)
+        if (pool.isVisible) {
+            prefs.edit().putLong("notify_since", now).apply()
+            return
+        }
+        val checker = RelayPool(scope) { signer.value }
+        checker.activityStarted()
+        try {
+            val answered = checker.query(
+                readRelays().take(4).toSet(),
+                listOf(Filter(kinds = ALERT_KINDS, tags = mapOf("p" to listOf(pubkey)), since = since, limit = 50)),
+                onEvent = ::ingest,
+            )
+            val wraps = ArrayList<Event>()
+            val inbox = dmRelays.value.toSet()
+            if (inbox.isNotEmpty() && active !is ReadOnlySigner) {
+                checker.query(
+                    inbox,
+                    listOf(Filter(kinds = listOf(Kind.GIFT_WRAP), tags = mapOf("p" to listOf(pubkey)), since = since - 2 * 86400, limit = 50)),
+                ) { e, _ -> synchronized(wraps) { wraps += e } }
+            }
+            val seen = prefs.getStringSet("notified_wraps", emptySet()).orEmpty()
+            val fresh = synchronized(wraps) { wraps.distinctBy { it.id } }.filter { it.id !in seen && !store.hasWrap(it.id) }
+            val messages = fresh.count { receiveWrap(it) != pubkey }
+            if (fresh.isNotEmpty()) {
+                prefs.edit().putStringSet("notified_wraps", (seen + fresh.map { it.id }).toList().takeLast(300).toSet()).apply()
+            }
+            delay(500)
+            val alerts = store.alerts(pubkey, muted.value, 30).filter { it.event.createdAt > since }
+            alerts.map { it.actor }.distinct().let { actors ->
+                actors.filter { !profiles.containsKey(it) }.takeIf { it.isNotEmpty() }?.let { missing ->
+                    store.latestOfKind(missing, Kind.METADATA).forEach { publishProfile(parseProfile(it)) }
+                }
+            }
+            delay(100)
+            Notifier.post(context, alerts, messages, ::displayName)
+            if (answered.isNotEmpty()) prefs.edit().putLong("notify_since", now).apply()
+        } finally {
+            checker.shutdown()
+        }
+    }
+
     /** Asks every relevant relay what it holds for this account. The report has public data only. */
     suspend fun accountCheck(): String = withContext(Dispatchers.IO) {
         val pubkey = me ?: return@withContext "Not signed in."
@@ -995,6 +1201,7 @@ class Core(private val context: Context) {
         private const val CACHE_EVENTS = 20_000
         private const val IMAGE_CACHE_BYTES = 80L * 1024 * 1024
         private const val MAX_FEED_RELAYS = 8
+        private const val TRUST_THRESHOLD = 2
 
         /** One request stays well under the frame limits relays apply. */
         const val MAX_AUTHORS = 400
@@ -1006,7 +1213,7 @@ class Core(private val context: Context) {
         val DEFAULT_DM_RELAYS = listOf("wss://auth.nostr1.com", "wss://relay.damus.io")
         val DEFAULT_MEDIA_SERVERS = listOf("https://blossom.primal.net", "https://blossom.band")
 
-        val OWN_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.MUTES, Kind.RELAYS, Kind.SEARCH_RELAYS, Kind.DM_RELAYS, Kind.MEDIA_SERVERS)
+        val OWN_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.MUTES, Kind.BOOKMARKS, Kind.RELAYS, Kind.SEARCH_RELAYS, Kind.DM_RELAYS, Kind.MEDIA_SERVERS)
         val PUBLIC_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.RELAYS, Kind.DM_RELAYS, Kind.MEDIA_SERVERS)
         val STAT_KINDS = listOf(Kind.NOTE, Kind.REPOST, Kind.REACTION, Kind.COMMENT, Kind.ZAP_RECEIPT)
         val ALERT_KINDS = listOf(Kind.NOTE, Kind.COMMENT, Kind.REPOST, Kind.REACTION, Kind.ZAP_RECEIPT)

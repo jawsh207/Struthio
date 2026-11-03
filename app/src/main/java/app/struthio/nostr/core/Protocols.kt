@@ -372,6 +372,63 @@ fun blossomAuthTags(sha256: String, serverHost: String, now: Long): Tags = listO
 fun imetaTag(url: String, mime: String, sha256: String, width: Int, height: Int, size: Int): List<String> =
     listOf("imeta", "url $url", "m $mime", "x $sha256", "dim ${width}x$height", "size $size")
 
+private val VIDEO_EXT = Regex(""".*\.(mp4|webm|mov|m4v)(\?.*)?$""", RegexOption.IGNORE_CASE)
+
+/** Videos in a note: imeta type first, then file extension. */
+fun noteVideos(event: Event): List<String> {
+    val declared = event.tags.filter { it.firstOrNull() == "imeta" }.mapNotNull { tag ->
+        val url = tag.firstOrNull { it.startsWith("url ") }?.removePrefix("url ")
+        val mime = tag.firstOrNull { it.startsWith("m ") }?.removePrefix("m ")
+        url?.takeIf { mime?.startsWith("video/") == true }
+    }
+    val links = parseContent(event.content).filterIsInstance<Part.Link>().map { it.url }
+    return links.filter { (it in declared || VIDEO_EXT.matches(it)) && it.startsWith("https://") }.distinct()
+}
+
+data class LinkInfo(val url: String, val title: String, val description: String, val image: String?)
+
+private val META_TAG = Regex("""<meta\s[^>]*>""", RegexOption.IGNORE_CASE)
+private val TITLE_TAG = Regex("""<title[^>]*>([^<]{1,300})</title>""", RegexOption.IGNORE_CASE)
+
+private fun attribute(tag: String, name: String): String? =
+    Regex("""\b$name\s*=\s*("([^"]*)"|'([^']*)')""", RegexOption.IGNORE_CASE).find(tag)
+        ?.let { it.groupValues[2].ifEmpty { it.groupValues[3] } }
+
+/** Open Graph card data from the start of an HTML page. */
+fun parseLinkInfo(url: String, html: String): LinkInfo? {
+    val meta = HashMap<String, String>()
+    for (match in META_TAG.findAll(html)) {
+        val key = (attribute(match.value, "property") ?: attribute(match.value, "name"))?.lowercase() ?: continue
+        val value = attribute(match.value, "content")?.trim() ?: continue
+        if (value.isNotEmpty()) meta.putIfAbsent(key, value)
+    }
+    val title = meta["og:title"] ?: meta["twitter:title"] ?: TITLE_TAG.find(html)?.groupValues?.get(1)?.trim() ?: return null
+    if (title.isEmpty()) return null
+    val description = meta["og:description"] ?: meta["twitter:description"] ?: meta["description"] ?: ""
+    val image = (meta["og:image"] ?: meta["twitter:image"])?.takeIf { it.startsWith("https://") }
+    return LinkInfo(url, title.take(160), description.take(240), image)
+}
+
+/** Only ordinary public names: a note must not make the phone probe its own network. */
+fun isPreviewable(url: String): Boolean = runCatching {
+    val host = URI(url).host?.lowercase() ?: return false
+    url.startsWith("https://") && host.contains('.') && !host.endsWith(".local") && !host.endsWith(".lan") &&
+        !host.endsWith(".internal") && !host.last().isDigit() && !host.contains(':')
+}.getOrDefault(false)
+
+/**
+ * Follows of follows: the accounts at least [threshold] of the people you follow also follow,
+ * together with the people you follow yourself.
+ */
+fun trustedNetwork(me: String, follows: Set<String>, theirLists: Collection<Collection<String>>, threshold: Int): Set<String> {
+    val counts = HashMap<String, Int>()
+    theirLists.forEach { list -> list.toSet().forEach { counts[it] = (counts[it] ?: 0) + 1 } }
+    return counts.filterValues { it >= threshold }.keys + follows + me
+}
+
+fun reportTags(event: Event, type: String): Tags =
+    listOf(listOf("p", event.pubkey, type), listOf("e", event.id, type))
+
 fun roomOf(rumor: Draft): Set<String> = (rumor.tags.values("p") + rumor.pubkey).toSet()
 
 fun jsonStrings(values: Collection<String>): JSONArray = JSONArray().also { a -> values.forEach { a.put(it) } }

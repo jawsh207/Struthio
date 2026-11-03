@@ -26,9 +26,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.nowSeconds
-import app.struthio.nostr.core.reactionGlyph
-import app.struthio.nostr.core.value
-import app.struthio.nostr.core.values
 import app.struthio.nostr.data.Alert
 
 @Composable
@@ -62,16 +59,15 @@ private fun AlertRow(alert: Alert, shape: Shape) {
     LaunchedEffect(alert.actor) { core.wantProfile(alert.actor) }
     val e = alert.event
     val name = core.displayName(alert.actor)
-    val (icon, headline, detail) = when (e.kind) {
-        Kind.REACTION -> Triple(Icons.Rounded.Favorite, "$name reacted ${reactionGlyph(e.content).orEmpty()}", "")
-        Kind.REPOST, Kind.GENERIC_REPOST -> Triple(Icons.Rounded.Repeat, "$name boosted your note", "")
-        Kind.ZAP_RECEIPT -> Triple(Icons.Rounded.Bolt, "$name zapped ${compact(alert.msats / 1000)} sats", alert.comment)
-        else -> Triple(Icons.Outlined.ChatBubbleOutline, "$name replied or mentioned you", e.content)
+    val icon = when (e.kind) {
+        Kind.REACTION -> Icons.Rounded.Favorite
+        Kind.REPOST, Kind.GENERIC_REPOST -> Icons.Rounded.Repeat
+        Kind.ZAP_RECEIPT -> Icons.Rounded.Bolt
+        else -> Icons.Outlined.ChatBubbleOutline
     }
-    val target = when (e.kind) {
-        Kind.NOTE, Kind.COMMENT -> e.id
-        else -> e.tags.values("e").lastOrNull()
-    }
+    val headline = alert.headline(name)
+    val detail = alert.detail
+    val target = alert.target
     CardRow(shape, {
             if (target != null) nav.push(Screen.Thread(target)) else nav.push(Screen.Profile(alert.actor))
         },

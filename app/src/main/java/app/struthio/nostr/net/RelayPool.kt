@@ -52,7 +52,10 @@ class RelayPool(
     private var pauseJob: Job? = null
     private val visible = AtomicInteger()
 
-    @Volatile private var foreground = true
+    /** Nothing connects until something is on screen, so a background wake-up opens no sockets. */
+    @Volatile private var foreground = false
+
+    val isVisible: Boolean get() = visible.get() > 0
 
     private fun relay(url: String) = relays.getOrPut(url) { Relay(url) }
 
@@ -151,6 +154,11 @@ class RelayPool(
 
     /** What a relay refused or what we refused from it, for the account check. */
     fun problemsOf(url: String): List<String> = synchronized(problems) { problems[url]?.toList().orEmpty() }
+
+    fun shutdown() {
+        foreground = false
+        relays.values.forEach { it.disconnect() }
+    }
 
     fun clearProblems() {
         synchronized(problems) { problems.clear() }
