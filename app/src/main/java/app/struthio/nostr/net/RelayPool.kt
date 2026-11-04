@@ -153,6 +153,7 @@ class RelayPool(
      */
     fun activityStopped() {
         if (visible.decrementAndGet() > 0) return
+        AppLog.add("app left")
         pauseJob?.cancel()
         pauseJob = scope.launch {
             delay(PAUSE_GRACE_MS)
@@ -164,7 +165,7 @@ class RelayPool(
 
     /** Counted, because an old activity's stop can arrive after the next one has started. */
     fun activityStarted() {
-        visible.incrementAndGet()
+        if (visible.incrementAndGet() == 1) AppLog.add("app opened")
         pauseJob?.cancel()
         foreground = true
         relays.values.forEach { it.wake() }
@@ -384,6 +385,12 @@ class RelayPool(
                 if (lasted) failures = 0 else failures++
                 val wait = minOf(MAX_BACKOFF_S, 2L shl minOf(failures, 8)) * 1000 + (0L until 1000L).random()
                 if (!lasted && failures >= 2) failedUntil = now + wait
+                // A relay turning us away, as members-only relays do, won't change its mind soon.
+                val message = error?.message.orEmpty()
+                if (message.startsWith("handshake refused: HTTP/1.1 4") && " 429" !in message) {
+                    failedUntil = now + REFUSED_MS
+                    limitedUntil = now + REFUSED_MS
+                }
                 retry = current.isNotEmpty() && foreground
                 if (retry) {
                     val delayMs = maxOf(wait, limitedUntil - now)
@@ -558,6 +565,7 @@ class RelayPool(
         const val MAX_BACKOFF_S = 300L
         const val STABLE_MS = 30_000L
         const val RATE_LIMIT_PAUSE_MS = 300_000L
+        const val REFUSED_MS = 30 * 60 * 1000L
         const val MAX_OPEN_SUBS = 12
         const val REQ_SPACING_MS = 120L
     }
