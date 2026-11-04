@@ -184,7 +184,11 @@ class RelayPool(
 
     fun noDroppedLists(urls: Set<String>): Boolean = urls.none { url -> problemsOf(url).any { it.startsWith("dropped") } }
 
+    /** Whether this relay has accepted our sign-in on the current connection. */
+    fun signedIn(url: String): Boolean = relays[url]?.signedIn == true
+
     private fun note(url: String, problem: String) {
+        AppLog.add("$url $problem")
         synchronized(problems) {
             val list = problems.getOrPut(url) { ArrayList() }
             if (problem !in list && list.size < 6) list += problem
@@ -224,6 +228,9 @@ class RelayPool(
         private var pacer: Job? = null
         private var challenge: String? = null
         private var authEventId: String? = null
+
+        @Volatile
+        var signedIn = false
         private val waitingForAuth = LinkedHashSet<String>()
         private var idleJob: Job? = null
         private var retryJob: Job? = null
@@ -332,6 +339,8 @@ class RelayPool(
         }
 
         private fun opened() {
+            AppLog.add("$url connected")
+            synchronized(problems) { problems[url]?.removeAll { it.startsWith("connection:") } }
             val requests = synchronized(lock) {
                 open = true
                 openedAt = System.currentTimeMillis()
@@ -344,6 +353,7 @@ class RelayPool(
 
         private fun closed(error: Throwable?) {
             error?.let { note(url, "connection: ${it.message ?: it.javaClass.simpleName}") }
+            signedIn = false
             val failed: List<Pending>
             val current: List<Subscription>
             val retry: Boolean
@@ -430,11 +440,12 @@ class RelayPool(
                         return
                     }
                     val sub = synchronized(lock) { subs[id] } ?: return
-                    note(url, "closed: $reason")
                     if ("auth-required" in reason && signer() != null) { // Damus puts "ERROR: " before it.
+                        AppLog.add("$url asked for sign-in: $reason")
                         synchronized(lock) { waitingForAuth += id }
                         authenticate()
                     } else {
+                        note(url, "closed: $reason")
                         // A refused request is not resent on the next reconnect.
                         synchronized(lock) {
                             subs.remove(id)
@@ -454,7 +465,13 @@ class RelayPool(
         private fun ok(id: String, accepted: Boolean, message: String) {
             val isAuth = synchronized(lock) { id == authEventId }
             if (isAuth) {
-                if (accepted) replayAfterAuth() else failAuth(message)
+                if (accepted) {
+                    AppLog.add("$url signed in")
+                    signedIn = true
+                    replayAfterAuth()
+                } else {
+                    failAuth(message)
+                }
                 return
             }
             val item = synchronized(lock) { pending[id] } ?: return
@@ -464,6 +481,7 @@ class RelayPool(
                 return
             }
             synchronized(lock) { pending.remove(id) }
+            if (!accepted) AppLog.add("$url refused kind ${item.event.kind}: $message")
             item.result.complete(PublishResult(accepted, message))
         }
 
@@ -478,6 +496,7 @@ class RelayPool(
         }
 
         private fun failAuth(message: String) {
+            note(url, "sign-in failed: $message")
             val affected: List<Subscription>
             val failed: List<Pending>
             synchronized(lock) {

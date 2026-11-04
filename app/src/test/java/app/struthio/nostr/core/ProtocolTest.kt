@@ -2,6 +2,7 @@ package app.struthio.nostr.core
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import app.struthio.nostr.net.AppLog
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -328,6 +329,13 @@ class ProtocolTest {
         assertEquals("NIP-99", nipName(99))
         assertNull(parseRelayInfo("not json"))
         assertNull(parseRelayInfo("{}")!!.tag)
+    }
+
+    @Test
+    fun logsNeverHoldKeys() {
+        val hex = "ab".repeat(32)
+        val out = AppLog.scrub("nsec1qqqqqq $hex nostr+walletconnect://abc?secret=1 wss://nos.lol")
+        assertEquals("[hidden] [hidden] [hidden] wss://nos.lol", out)
     }
 
     @Test

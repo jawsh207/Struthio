@@ -235,6 +235,7 @@ fun RelayInfoScreen(url: String) {
     val context = LocalContext.current
     val info = rememberRelayInfo(url)
     val ping = rememberPing(url)
+    val signedIn = remember(ping) { core.pool.signedIn(url) }
     val uses by produceState(emptyList<String>(), url) { value = withContext(Dispatchers.IO) { core.relayUses(url) } }
     val open = { link: String ->
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
@@ -283,7 +284,7 @@ fun RelayInfoScreen(url: String) {
                 }
                 Fact("Cost", cost)
                 info.fees.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Fact("Sign-in", stated(info.authRequired, "Required", "Not required"))
+                Fact("Sign-in", if (signedIn) "Signed in" else stated(info.authRequired, "Required", "Not required"))
                 Fact("Posting", stated(info.restrictedWrites, "Restricted", "Open"))
                 info.paymentsUrl?.let { link -> OutlinedButton({ open(link) }) { Text("Payment page") } }
             }

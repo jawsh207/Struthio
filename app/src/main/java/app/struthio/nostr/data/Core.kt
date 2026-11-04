@@ -49,6 +49,7 @@ import app.struthio.nostr.core.trustedNetwork
 import app.struthio.nostr.core.values
 import app.struthio.nostr.core.zapSplits
 import app.struthio.nostr.net.Bech32Lnurl
+import app.struthio.nostr.net.AppLog
 import app.struthio.nostr.net.Http
 import app.struthio.nostr.net.RelayPool
 import app.struthio.nostr.net.Subscription
@@ -555,6 +556,7 @@ class Core(private val context: Context) {
         val own = (writeRelays() + extraRelays).take(MAX_PUBLISH_RELAYS).toSet()
         withContext(NonCancellable) {
             val result = pool.publishFirst(event, own)
+            AppLog.add("sent kind ${event.kind} to ${own.size} relays: " + if (result.ok) "accepted" else "failed ${result.message}")
             if (!result.ok) throw UserError(result.message.takeIf { it.isNotBlank() } ?: "No relay accepted this.")
             ingest(event, own.first())
         }
@@ -874,13 +876,16 @@ class Core(private val context: Context) {
                 store.addDm(Dm(rumor.id, roomKey(roomOf(rumor)), rumor.pubkey, rumor.createdAt, text, file))
                 changes.tryEmit(Unit)
             }
+            AppLog.add("opened a message")
             store.addWrap(wrap.id)
             prefs.edit().putLong("dm_since", maxOf(prefs.getLong("dm_since", 0L), wrap.createdAt)).apply()
             return rumor.pubkey
-        } catch (_: IllegalStateException) {
+        } catch (e: IllegalStateException) {
+            AppLog.add("could not open a message: ${e.message}")
             // A signer that needs approval leaves the wrap for later; anything else is unreadable.
             if (active is LocalSigner) store.addWrap(wrap.id)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            AppLog.add("could not open a message: ${e.javaClass.simpleName}")
             if (active is LocalSigner) store.addWrap(wrap.id)
         }
         return null
@@ -922,6 +927,7 @@ class Core(private val context: Context) {
         for ((recipient, relays) in targets) {
             delivered = pool.publishFirst(wrapFor(json, recipient, active), relays.toSet()).ok || delivered
         }
+        AppLog.add("message to ${targets.size} people: " + if (delivered) "delivered" else "failed")
         if (!delivered) throw UserError("The message could not be delivered.")
         val ownCopy = wrapFor(json, active.pubkey, active)
         scope.launch { pool.publish(ownCopy, mine.toSet()) }
@@ -1174,7 +1180,7 @@ class Core(private val context: Context) {
             delay(500)
             val alerts = store.alerts(pubkey, muted.value, 30).filter { it.event.createdAt > since }
             val names = notificationNames(alerts.map { it.actor }.distinct(), checker)
-            android.util.Log.i("Struthio", "check: ${alerts.size} alerts, $messages messages, ${answered.size} relays")
+            AppLog.add("background check: ${alerts.size} alerts, $messages messages, ${answered.size} relays answered")
             Notifier.post(context, alerts, messages) { names[it] ?: shortNpub(it) }
             if (answered.isNotEmpty()) prefs.edit().putLong("notify_since", now).apply()
         } finally {
@@ -1308,6 +1314,25 @@ class Core(private val context: Context) {
             url in answered -> System.currentTimeMillis() - start
             else -> null
         }
+    }
+
+    /** Logs to copy, headed by what they need to be understood. Nothing here identifies the account. */
+    fun logReport(): String = buildString {
+        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+        val key = when (signer.value) {
+            is ExternalSigner -> "signer app"
+            is ReadOnlySigner -> "read-only"
+            null -> "signed out"
+            else -> "key on this phone"
+        }
+        appendLine("Struthio $version, Android ${android.os.Build.VERSION.SDK_INT}, ${android.os.Build.MODEL}, $key")
+        appendLine("General read: ${readRelays().joinToString(" ")}")
+        appendLine("General write: ${writeRelays().joinToString(" ")}")
+        appendLine("Messaging: ${dmRelays.value.joinToString(" ")}")
+        appendLine("Search: ${searchRelays().joinToString(" ")}")
+        appendLine("Lookup: ${lookupRelays().joinToString(" ")}")
+        appendLine()
+        append(AppLog.text())
     }
 
     fun relayUses(url: String): List<String> = buildList {

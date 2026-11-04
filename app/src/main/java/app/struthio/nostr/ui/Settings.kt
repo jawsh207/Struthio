@@ -46,6 +46,9 @@ import android.net.Uri
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.ExternalSigner
+import app.struthio.nostr.net.AppLog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.struthio.nostr.data.Notifier
 import app.struthio.nostr.data.SignerBridge
 import org.json.JSONObject
@@ -167,6 +170,25 @@ fun SettingsScreen() {
                 ToggleRow("Link previews", "Shows a card for links. Each linked site can see your IP address.", linkPreviews) {
                     linkPreviews = it
                     core.setLinkPreviews(it)
+                }
+            }
+            Section("Advanced") {
+                Text(
+                    "Logs show relay connections, sign-ins and errors, and stay on this phone until you copy them. They leave out your keys and the text of your notes and messages, but they do list your relays and the phone model.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton({
+                        scope.act(nav) {
+                            val report = core.logReport()
+                            withContext(Dispatchers.Main) { context.copy(report) }
+                            nav.say("Logs copied")
+                        }
+                    }) { Text("Copy logs") }
+                    OutlinedButton({
+                        AppLog.clear()
+                        nav.say("Logs cleared")
+                    }) { Text("Clear logs") }
                 }
             }
             Section("Media servers") {

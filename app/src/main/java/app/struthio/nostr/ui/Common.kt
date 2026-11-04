@@ -39,6 +39,7 @@ import app.struthio.nostr.core.Hex
 import app.struthio.nostr.core.sha256
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.UserError
+import app.struthio.nostr.net.AppLog
 import app.struthio.nostr.net.Http
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -81,8 +82,10 @@ fun CoroutineScope.act(nav: Nav, block: suspend () -> Unit) = launch(Dispatchers
     } catch (e: CancellationException) {
         throw e
     } catch (e: UserError) {
+        AppLog.add("action failed: ${e.message}")
         nav.say(e.message ?: "Something went wrong.")
     } catch (e: Exception) {
+        AppLog.add("action failed: $e")
         nav.say(e.message ?: "Something went wrong.")
     }
 }
