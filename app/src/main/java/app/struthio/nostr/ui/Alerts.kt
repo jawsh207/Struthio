@@ -29,12 +29,12 @@ import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.data.Alert
 
 @Composable
-fun AlertsScreen() {
+fun AlertsScreen(active: Boolean) {
     val core = LocalCore.current
     val nav = LocalNav.current
     val me = core.me ?: return
     val alerts by liveQuery(emptyList<Alert>()) { core.store.alerts(me, core.muted.value, 150) }
-    LaunchedEffect(alerts) { core.prefs.edit().putLong("alerts_read", nowSeconds()).apply() }
+    LaunchedEffect(alerts, active) { if (active) core.prefs.edit().putLong("alerts_read", nowSeconds()).apply() }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Text("Notifications", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp))

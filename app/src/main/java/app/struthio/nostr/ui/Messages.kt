@@ -75,14 +75,14 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun MessagesScreen() {
+fun MessagesScreen(active: Boolean) {
     val core = LocalCore.current
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val me = core.me ?: return
     val relays by core.dmRelays.collectAsState()
     val rooms by liveQuery(emptyList<Room>()) { core.store.rooms(me) }
-    LaunchedEffect(rooms) { core.prefs.edit().putLong("dms_read", nowSeconds()).apply() }
+    LaunchedEffect(rooms, active) { if (active) core.prefs.edit().putLong("dms_read", nowSeconds()).apply() }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {

@@ -7,9 +7,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Home
@@ -35,7 +38,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -105,7 +107,8 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
     val scope = rememberCoroutineScope()
     val nav = remember { Nav(scope, snackbar) }
     val signer by core.signer.collectAsState()
-    var tab by remember { mutableIntStateOf(0) }
+    val pager = rememberPagerState { TABS.size }
+    val tab = pager.settledPage
     var pendingWallet by remember { mutableStateOf<String?>(null) }
     val link by deepLink.collectAsState()
 
@@ -115,8 +118,8 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
         deepLink.value = null
         if (target.startsWith("nostr+walletconnect:")) {
             pendingWallet = target
-            tab = 2
             nav.stack.clear()
+            pager.requestScrollToPage(2)
         } else {
             when (val entity = Nip19.decode(target)) {
                 is Entity.Profile -> nav.push(Screen.Profile(entity.pubkey))
@@ -134,6 +137,8 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
             return@CompositionLocalProvider
         }
         BackHandler(nav.stack.isNotEmpty()) { nav.pop() }
+        // Back from another tab goes home. From home it falls through and leaves the app.
+        BackHandler(nav.stack.isEmpty() && pager.targetPage != 0) { scope.launch { pager.animateScrollToPage(0) } }
         val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
         LaunchedEffect(Unit) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !core.prefs.getBoolean("asked_notifications", false)) {
@@ -160,14 +165,14 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                                 else -> 0
                             }
                             ShortNavigationBarItem(
-                                selected = tab == index,
+                                selected = pager.targetPage == index,
                                 onClick = {
-                                    if (index == 0 && tab == 0) nav.homeTapped.tryEmit(Unit)
-                                    tab = index
+                                    if (index == 0 && pager.targetPage == 0) nav.homeTapped.tryEmit(Unit)
+                                    scope.launch { pager.animateScrollToPage(index) }
                                 },
                                 icon = {
                                     BadgedBox(badge = { if (badge > 0) Badge { Text(if (badge > 99) "99+" else badge.toString()) } }) {
-                                        Icon(if (tab == index) item.on else item.off, item.label)
+                                        Icon(if (pager.targetPage == index) item.on else item.off, item.label)
                                     }
                                 },
                                 label = { Text(item.label, style = MaterialTheme.typography.labelSmall) },
@@ -179,11 +184,13 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
         ) { padding ->
             Box(Modifier.padding(padding)) {
                 when (top) {
-                    null -> when (tab) {
-                        0 -> HomeScreen()
-                        1 -> MessagesScreen()
-                        2 -> WalletScreen(pendingWallet) { pendingWallet = null }
-                        else -> AlertsScreen()
+                    null -> HorizontalPager(pager, Modifier.fillMaxSize(), key = { it }) { page ->
+                        when (page) {
+                            0 -> HomeScreen()
+                            1 -> MessagesScreen(active = tab == 1)
+                            2 -> WalletScreen(pendingWallet) { pendingWallet = null }
+                            else -> AlertsScreen(active = tab == 3)
+                        }
                     }
                     is Screen.Thread -> ThreadScreen(top)
                     is Screen.Profile -> ProfileScreen(top.pubkey)

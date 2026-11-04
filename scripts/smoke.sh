@@ -99,6 +99,12 @@ sleep 2
 tap_text "Global"
 sleep 8
 adb exec-out screencap -p > smoke/08-global.png
+adb shell input swipe 900 1200 150 1200 300
+sleep 3
+adb exec-out screencap -p > smoke/08a-swiped.png
+adb shell input keyevent 4
+sleep 3
+adb exec-out screencap -p > smoke/08b-back.png
 tap_text "Settings"
 sleep 3
 tap_text "Account check"
