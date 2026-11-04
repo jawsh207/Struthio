@@ -431,7 +431,7 @@ class RelayPool(
                     }
                     val sub = synchronized(lock) { subs[id] } ?: return
                     note(url, "closed: $reason")
-                    if (reason.startsWith("auth-required") && signer() != null) {
+                    if ("auth-required" in reason && signer() != null) { // Damus puts "ERROR: " before it.
                         synchronized(lock) { waitingForAuth += id }
                         authenticate()
                     } else {
@@ -458,7 +458,7 @@ class RelayPool(
                 return
             }
             val item = synchronized(lock) { pending[id] } ?: return
-            if (!accepted && message.startsWith("auth-required") && !item.retriedAuth && signer() != null) {
+            if (!accepted && "auth-required" in message && !item.retriedAuth && signer() != null) {
                 item.retriedAuth = true
                 authenticate()
                 return
