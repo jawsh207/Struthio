@@ -9,5 +9,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: pip install --quiet websockets
+      - run: pip install --quiet websockets coincurve
       - run: python3 scripts/relay-check.py

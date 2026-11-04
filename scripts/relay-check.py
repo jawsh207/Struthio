@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Read-only relay survey: NIP-11 document, connection time, and whether each job works."""
-import asyncio, json, time, urllib.request
+import asyncio, hashlib, json, os, time, urllib.request
 import websockets
 
 KEY = "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
 GENERAL = ["relay.damus.io", "nos.lol", "relay.primal.net", "relay.snort.social", "nostr.mom", "offchain.pub"]
 MESSAGING = ["relay.damus.io", "nos.lol", "relay.primal.net", "nostr.mom", "offchain.pub", "relay.snort.social"]
 SEARCH = ["search.nos.today", "relay.ditto.pub", "relay.noswhere.com", "nostr.wine", "relay.azzamo.net", "nostrja-kari-nip50.heguro.com", "nfrelay.app", "relay.nostr.watch", "nostr.polyserv.xyz"]
+SIGN_IN = ["relay.damus.io", "auth.nostr1.com", "nip17.com", "nos.lol", "relay.primal.net"]
 LOOKUP = ["purplepag.es", "user.kindpag.es", "indexer.coracle.social", "directory.yabu.me"]
 
 
@@ -65,7 +66,51 @@ async def row(host, flt, label):
     )
 
 
+def signed_auth(secret, relay, challenge):
+    """NIP-42 sign-in from a throwaway key. Relays check it and never store it."""
+    from coincurve import PrivateKey, PublicKeyXOnly
+    pubkey = PublicKeyXOnly.from_secret(secret).format().hex()
+    created, tags = int(time.time()), [["relay", f"wss://{relay}"], ["challenge", challenge]]
+    body = json.dumps([0, pubkey, created, 22242, tags, ""], separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(body.encode()).digest()
+    sig = PrivateKey(secret).sign_schnorr(digest)
+    return {"id": digest.hex(), "pubkey": pubkey, "created_at": created, "kind": 22242, "tags": tags, "content": "", "sig": sig.hex()}
+
+
+async def sign_in(host):
+    secret = os.urandom(32)
+    flt = {"kinds": [1059], "#p": [KEY], "limit": 1}
+    try:
+        async with websockets.connect(f"wss://{host}", open_timeout=8, max_size=2**22, user_agent_header="relay-check") as ws:
+            await ws.send(json.dumps(["REQ", "check", flt]))
+            challenge, steps = None, []
+            deadline = time.time() + 12
+            while time.time() < deadline:
+                try:
+                    msg = json.loads(await asyncio.wait_for(ws.recv(), deadline - time.time()))
+                except asyncio.TimeoutError:
+                    break
+                if msg[0] == "AUTH":
+                    challenge = msg[1]
+                    await ws.send(json.dumps(["AUTH", signed_auth(secret, host, challenge)]))
+                    steps.append("sent-auth")
+                elif msg[0] == "OK":
+                    steps.append(f"OK {msg[2]} {str(msg[3])[:70]}")
+                    if msg[2]:
+                        await ws.send(json.dumps(["REQ", "again", flt]))
+                    else:
+                        break
+                elif msg[0] in ("CLOSED", "EOSE", "NOTICE"):
+                    steps.append(f"{msg[0]} {str(msg[-1])[:60]}")
+                    if msg[0] == "EOSE":
+                        break
+            print(f"signin    {host:24} {' | '.join(steps)}")
+    except Exception as e:
+        print(f"signin    {host:24} fail {type(e).__name__} {str(e)[:60]}")
+
+
 async def main():
+    await asyncio.gather(*[sign_in(h) for h in SIGN_IN])
     jobs = [row(h, {"kinds": [1], "limit": 5}, "general") for h in GENERAL]
     jobs += [row(h, {"kinds": [1059], "#p": [KEY], "limit": 5}, "messaging") for h in MESSAGING]
     jobs += [row(h, {"kinds": [1], "search": "bitcoin", "limit": 5}, "search") for h in SEARCH]
