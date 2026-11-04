@@ -1340,7 +1340,7 @@ class Core(private val context: Context) {
 
         val DEFAULT_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
         val DEFAULT_LOOKUP_RELAYS = listOf("wss://purplepag.es", "wss://indexer.coracle.social")
-        val DEFAULT_SEARCH_RELAYS = listOf("wss://relay.ditto.pub", "wss://nostrja-kari-nip50.heguro.com")
+        val DEFAULT_SEARCH_RELAYS = listOf("wss://relay.ditto.pub")
         val DEFAULT_DM_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol")
         val DEFAULT_MEDIA_SERVERS = listOf("https://blossom.primal.net", "https://blossom.band")
 
