@@ -108,7 +108,6 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
     val nav = remember { Nav(scope, snackbar) }
     val signer by core.signer.collectAsState()
     val pager = rememberPagerState { TABS.size }
-    val tab = pager.settledPage
     var pendingWallet by remember { mutableStateOf<String?>(null) }
     val link by deepLink.collectAsState()
 
@@ -148,9 +147,8 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
         }
         val top = nav.stack.lastOrNull()
         val me = signer!!.pubkey
-        val alertsRead = core.prefs.getLong("alerts_read", 0L)
-        val unreadAlerts by liveQuery(0, tab, alertsRead) { if (tab == 3) 0 else core.store.unreadAlerts(me, core.prefs.getLong("alerts_read", 0L)) }
-        val unreadDms by liveQuery(0, tab) { if (tab == 1) 0 else core.store.unreadMessages(me, core.prefs.getLong("dms_read", 0L)) }
+        val unreadAlerts by liveQuery(0, me) { core.unreadAlerts(me).size }
+        val unreadDms by liveQuery(0, me) { core.unreadRooms(me).values.sum() }
 
         Scaffold(
             contentWindowInsets = WindowInsets(0),
@@ -187,9 +185,9 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                     null -> HorizontalPager(pager, Modifier.fillMaxSize(), key = { it }) { page ->
                         when (page) {
                             0 -> HomeScreen()
-                            1 -> MessagesScreen(active = tab == 1)
+                            1 -> MessagesScreen()
                             2 -> WalletScreen(pendingWallet) { pendingWallet = null }
-                            else -> AlertsScreen(active = tab == 3)
+                            else -> AlertsScreen()
                         }
                     }
                     is Screen.Thread -> ThreadScreen(top)

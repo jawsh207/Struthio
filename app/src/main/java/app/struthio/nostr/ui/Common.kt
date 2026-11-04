@@ -8,9 +8,16 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
@@ -220,6 +227,26 @@ fun segmentShape(index: Int, count: Int): Shape {
         bottomStart = if (index == count - 1) big else small,
         bottomEnd = if (index == count - 1) big else small,
     )
+}
+
+/** A page title, with the button that clears everything unread opposite it. */
+@Composable
+fun UnreadHeader(title: String, hasUnread: Boolean, onMarkAll: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).padding(vertical = 16.dp))
+        IconButton(onMarkAll, enabled = hasUnread) { Icon(Icons.Rounded.DoneAll, "Mark all as read") }
+    }
+}
+
+/** An avatar, with a dot on it while something from them is unread. */
+@Composable
+fun UnreadAvatar(pubkey: String, unread: Boolean, size: Dp = 48.dp) {
+    Box {
+        Avatar(pubkey, size)
+        if (unread) {
+            Box(Modifier.align(Alignment.TopEnd).size(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+        }
+    }
 }
 
 @Composable

@@ -22,22 +22,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Kind
-import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.data.Alert
 
 @Composable
-fun AlertsScreen(active: Boolean) {
+fun AlertsScreen() {
     val core = LocalCore.current
     val nav = LocalNav.current
     val me = core.me ?: return
     val alerts by liveQuery(emptyList<Alert>()) { core.store.alerts(me, core.muted.value, 150) }
-    LaunchedEffect(alerts, active) { if (active) core.prefs.edit().putLong("alerts_read", nowSeconds()).apply() }
+    val unread by liveQuery(emptySet<String>(), me) { core.unreadAlerts(me) }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Text("Notifications", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp))
+        UnreadHeader("Notifications", unread.isNotEmpty()) { core.readAllAlerts(me) }
         if (alerts.isEmpty()) {
             Text(
                 "Replies, boosts, reactions and zaps show up here.",
@@ -47,13 +47,13 @@ fun AlertsScreen(active: Boolean) {
             )
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            itemsIndexed(alerts, key = { _, it -> it.event.id }) { index, alert -> AlertRow(alert, segmentShape(index, alerts.size)) }
+            itemsIndexed(alerts, key = { _, it -> it.event.id }) { index, alert -> AlertRow(alert, alert.event.id in unread, segmentShape(index, alerts.size)) }
         }
     }
 }
 
 @Composable
-private fun AlertRow(alert: Alert, shape: Shape) {
+private fun AlertRow(alert: Alert, unread: Boolean, shape: Shape) {
     val core = LocalCore.current
     val nav = LocalNav.current
     LaunchedEffect(alert.actor) { core.wantProfile(alert.actor) }
@@ -69,11 +69,14 @@ private fun AlertRow(alert: Alert, shape: Shape) {
     val detail = alert.detail
     val target = alert.target
     CardRow(shape, {
+            core.readAlert(e.id)
             if (target != null) nav.push(Screen.Thread(target)) else nav.push(Screen.Profile(alert.actor))
         },
-        headlineContent = { Text(headline, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        headlineContent = {
+            Text(headline, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = if (unread) FontWeight.Bold else null)
+        },
         supportingContent = detail.takeIf { it.isNotBlank() }?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
-        leadingContent = { Avatar(alert.actor, 40.dp) },
+        leadingContent = { UnreadAvatar(alert.actor, unread, 40.dp) },
         trailingContent = {
             Column {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary)

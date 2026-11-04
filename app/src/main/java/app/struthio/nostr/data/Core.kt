@@ -1316,6 +1316,47 @@ class Core(private val context: Context) {
         }
     }
 
+    /** Unread means not opened here. Marking all read moves a line that older items fall behind. */
+    fun unreadAlerts(me: String): Set<String> {
+        val since = prefs.getLong("alerts_read", 0L)
+        val read = store.readAlerts()
+        return store.alerts(me, muted.value, 150).filter { it.event.createdAt > since && it.event.id !in read }.map { it.event.id }.toSet()
+    }
+
+    fun unreadRooms(me: String): Map<String, Int> = store.unreadRooms(me, prefs.getLong("dms_read", 0L))
+
+    fun readAlert(id: String) {
+        scope.launch {
+            store.markRead(id, nowSeconds())
+            changes.tryEmit(Unit)
+        }
+    }
+
+    fun readRoom(room: String, upTo: Long) {
+        scope.launch {
+            store.markRead("room:$room", upTo)
+            changes.tryEmit(Unit)
+        }
+    }
+
+    fun readAllAlerts(me: String) {
+        scope.launch {
+            val newest = store.alerts(me, muted.value, 1).firstOrNull()?.event?.createdAt ?: 0L
+            prefs.edit().putLong("alerts_read", maxOf(nowSeconds(), newest)).apply()
+            store.clearReads(rooms = false)
+            changes.tryEmit(Unit)
+        }
+    }
+
+    fun readAllRooms(me: String) {
+        scope.launch {
+            val newest = store.rooms(me).maxOfOrNull { it.last.createdAt } ?: 0L
+            prefs.edit().putLong("dms_read", maxOf(nowSeconds(), newest)).apply()
+            store.clearReads(rooms = true)
+            changes.tryEmit(Unit)
+        }
+    }
+
     /** Logs to copy, headed by what they need to be understood. Nothing here identifies the account. */
     fun logReport(): String = buildString {
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()

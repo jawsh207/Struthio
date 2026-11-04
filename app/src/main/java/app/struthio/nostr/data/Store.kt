@@ -68,7 +68,9 @@ data class Alert(val event: Event, val actor: String, val msats: Long, val comme
 }
 
 /** Local cache on the platform's SQLite: the first thing every screen shows. */
-class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 3) {
+private const val CREATE_READS = "CREATE TABLE reads(key TEXT PRIMARY KEY, at INTEGER NOT NULL)"
+
+class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
@@ -104,11 +106,13 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 3
         db.execSQL("CREATE TABLE wraps(id TEXT PRIMARY KEY)")
         db.execSQL("CREATE TABLE follows(pubkey TEXT PRIMARY KEY)")
         db.execSQL("CREATE TABLE trusted(pubkey TEXT PRIMARY KEY)")
+        db.execSQL(CREATE_READS)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE dms ADD COLUMN file TEXT")
         if (oldVersion < 3) db.execSQL("CREATE TABLE trusted(pubkey TEXT PRIMARY KEY)")
+        if (oldVersion < 4) db.execSQL(CREATE_READS)
     }
 
     /** Stores a batch and returns what is new. */
@@ -411,11 +415,25 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 3
             arrayOf(me, me),
         ).use { if (it.moveToFirst()) it.getLong(0) else 0 }
 
-    fun unreadAlerts(me: String, since: Long): Int =
-        readableDatabase.rawQuery(
-            "SELECT COUNT(*) FROM events WHERE id IN (SELECT id FROM refs WHERE name='p' AND value=?) AND pubkey != ? AND created_at > ?",
-            arrayOf(me, me, since.toString()),
-        ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    /** What has been opened: note ids for alerts, and "room:" keys up to a time for conversations. */
+    fun markRead(key: String, at: Long) {
+        writableDatabase.execSQL(
+            "INSERT OR REPLACE INTO reads(key, at) VALUES(?, MAX(?, COALESCE((SELECT at FROM reads WHERE key=?), 0)))",
+            arrayOf<Any>(key, at, key),
+        )
+    }
+
+    fun readAlerts(): Set<String> {
+        val out = HashSet<String>()
+        readableDatabase.rawQuery("SELECT key FROM reads WHERE key NOT LIKE 'room:%'", null).use {
+            while (it.moveToNext()) out += it.getString(0)
+        }
+        return out
+    }
+
+    fun clearReads(rooms: Boolean) {
+        writableDatabase.execSQL("DELETE FROM reads WHERE key ${if (rooms) "" else "NOT "}LIKE 'room:%'")
+    }
 
     /** Our own reaction events on a note, so that a second tap can take them back. */
     fun myReactions(target: String, me: String): List<Event> = events(
@@ -470,11 +488,16 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 3
         return out
     }
 
-    fun unreadMessages(me: String, since: Long): Int =
+    /** Unread messages for each conversation, counting from when it was last opened. */
+    fun unreadRooms(me: String, since: Long): Map<String, Int> {
+        val out = HashMap<String, Int>()
         readableDatabase.rawQuery(
-            "SELECT COUNT(*) FROM dms WHERE sender != ? AND created_at > ?",
+            """SELECT d.room, COUNT(*) FROM dms d LEFT JOIN reads r ON r.key='room:' || d.room
+               WHERE d.sender != ? AND d.created_at > ? AND d.created_at > COALESCE(r.at, 0) GROUP BY d.room""",
             arrayOf(me, since.toString()),
-        ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        ).use { while (it.moveToNext()) out[it.getString(0)] = it.getInt(1) }
+        return out
+    }
 
     fun searchProfiles(query: String, limit: Int): List<Event> {
         val like = "%" + query.replace("%", "").replace("_", "") + "%"
@@ -506,6 +529,7 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 3
     }
 
     fun clearAll() {
+        writableDatabase.execSQL("DELETE FROM reads")
         val db = writableDatabase
         for (table in listOf("refs", "zaps", "providers", "dms", "wraps", "follows", "trusted", "events")) db.delete(table, null, null)
         db.execSQL("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')")

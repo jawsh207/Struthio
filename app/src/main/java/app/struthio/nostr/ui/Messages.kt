@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,18 +76,18 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun MessagesScreen(active: Boolean) {
+fun MessagesScreen() {
     val core = LocalCore.current
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val me = core.me ?: return
     val relays by core.dmRelays.collectAsState()
     val rooms by liveQuery(emptyList<Room>()) { core.store.rooms(me) }
-    LaunchedEffect(rooms, active) { if (active) core.prefs.edit().putLong("dms_read", nowSeconds()).apply() }
+    val unread by liveQuery(emptyMap<String, Int>(), me) { core.unreadRooms(me) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Text("Messages", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp))
+            UnreadHeader("Messages", unread.isNotEmpty()) { core.readAllRooms(me) }
             if (relays.isEmpty()) {
                 Surface(
                     shape = RoundedCornerShape(28.dp),
@@ -110,7 +111,7 @@ fun MessagesScreen(active: Boolean) {
             }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(rooms, key = { _, room -> room.key }) { index, room ->
-                    RoomRow(room, segmentShape(index, rooms.size)) { nav.push(Screen.Chat(room.key)) }
+                    RoomRow(room, unread[room.key] ?: 0, segmentShape(index, rooms.size)) { nav.push(Screen.Chat(room.key)) }
                 }
             }
         }
@@ -160,17 +161,29 @@ fun NewMessageScreen() {
 }
 
 @Composable
-private fun RoomRow(room: Room, shape: Shape, onClick: () -> Unit) {
+private fun RoomRow(room: Room, unread: Int, shape: Shape, onClick: () -> Unit) {
     val core = LocalCore.current
     val first = room.members.firstOrNull() ?: core.me ?: return
     LaunchedEffect(first) { room.members.forEach(core::wantProfile) }
     CardRow(shape, onClick,
         headlineContent = {
-            Text(room.members.joinToString(", ") { core.displayName(it) }.ifEmpty { "Note to self" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                room.members.joinToString(", ") { core.displayName(it) }.ifEmpty { "Note to self" },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = if (unread > 0) FontWeight.Bold else null,
+            )
         },
-        supportingContent = { Text(room.last.content, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        trailingContent = { Text(relativeTime(room.last.createdAt)) },
-        leadingContent = { Avatar(first) },
+        supportingContent = {
+            Text(room.last.content, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (unread > 0) FontWeight.Bold else null)
+        },
+        trailingContent = {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(relativeTime(room.last.createdAt))
+                if (unread > 0) Text(if (unread > 99) "99+" else unread.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        leadingContent = { UnreadAvatar(first, unread > 0) },
     )
 }
 
@@ -189,6 +202,8 @@ fun ChatScreen(room: String) {
     var menu by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf<FileMessage?>(null) }
     LaunchedEffect(room) { others.forEach(core::wantProfile) }
+    // Reading the conversation is what makes it read, including anything that arrives while it's open.
+    LaunchedEffect(messages) { messages.firstOrNull()?.let { core.readRoom(room, it.createdAt) } }
 
     fun attach(uri: Uri?) {
         if (uri == null) return
