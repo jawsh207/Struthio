@@ -187,6 +187,9 @@ class RelayPool(
     /** Whether this relay has accepted our sign-in on the current connection. */
     fun signedIn(url: String): Boolean = relays[url]?.signedIn == true
 
+    /** Whether this relay turned down a correct sign-in, as a misconfigured relay does. */
+    fun signInRefused(url: String): Boolean = relays[url]?.signInRefused == true
+
     private fun note(url: String, problem: String) {
         AppLog.add("$url $problem")
         synchronized(problems) {
@@ -231,6 +234,10 @@ class RelayPool(
 
         @Volatile
         var signedIn = false
+
+        /** Kept across reconnects, so a relay that can't take sign-ins isn't asked to on every one. */
+        @Volatile
+        var signInRefused = false
         private val waitingForAuth = LinkedHashSet<String>()
         private var idleJob: Job? = null
         private var retryJob: Job? = null
@@ -440,7 +447,7 @@ class RelayPool(
                         return
                     }
                     val sub = synchronized(lock) { subs[id] } ?: return
-                    if ("auth-required" in reason && signer() != null) { // Damus puts "ERROR: " before it.
+                    if ("auth-required" in reason && signer() != null && !signInRefused) { // Damus puts "ERROR: " before it.
                         AppLog.add("$url asked for sign-in: $reason")
                         synchronized(lock) { waitingForAuth += id }
                         authenticate()
@@ -468,14 +475,16 @@ class RelayPool(
                 if (accepted) {
                     AppLog.add("$url signed in")
                     signedIn = true
+                    signInRefused = false
                     replayAfterAuth()
                 } else {
+                    signInRefused = true
                     failAuth(message)
                 }
                 return
             }
             val item = synchronized(lock) { pending[id] } ?: return
-            if (!accepted && "auth-required" in message && !item.retriedAuth && signer() != null) {
+            if (!accepted && "auth-required" in message && !item.retriedAuth && signer() != null && !signInRefused) {
                 item.retriedAuth = true
                 authenticate()
                 return
@@ -502,9 +511,15 @@ class RelayPool(
             synchronized(lock) {
                 authEventId = null
                 affected = waitingForAuth.mapNotNull { subs[it] }
+                // Refused requests aren't resent on the next reconnect, as with any other refusal.
+                waitingForAuth.forEach {
+                    subs.remove(it)
+                    sent.remove(it)
+                }
                 waitingForAuth.clear()
                 failed = pending.values.filter { it.retriedAuth }
                 failed.forEach { pending.remove(it.event.id) }
+                pump()
             }
             affected.forEach { it.onDone(url, false) }
             failed.forEach { it.result.complete(PublishResult(false, message)) }
