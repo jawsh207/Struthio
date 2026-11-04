@@ -56,6 +56,9 @@ class RelayPool(
     /** Nothing connects until something is on screen, so a background wake-up opens no sockets. */
     @Volatile private var foreground = false
 
+    /** Android cuts a backgrounded app's network within seconds, so nothing is retried until it's back. */
+    @Volatile private var leaving = false
+
     val isVisible: Boolean get() = visible.get() > 0
 
     private fun relay(url: String) = relays.getOrPut(url) { Relay(url) }
@@ -154,6 +157,7 @@ class RelayPool(
     fun activityStopped() {
         if (visible.decrementAndGet() > 0) return
         AppLog.add("app left")
+        leaving = true
         pauseJob?.cancel()
         pauseJob = scope.launch {
             delay(PAUSE_GRACE_MS)
@@ -166,6 +170,7 @@ class RelayPool(
     /** Counted, because an old activity's stop can arrive after the next one has started. */
     fun activityStarted() {
         if (visible.incrementAndGet() == 1) AppLog.add("app opened")
+        leaving = false
         pauseJob?.cancel()
         foreground = true
         relays.values.forEach { it.wake() }
@@ -360,7 +365,7 @@ class RelayPool(
         }
 
         private fun closed(error: Throwable?) {
-            error?.let { note(url, "connection: ${it.message ?: it.javaClass.simpleName}") }
+            if (!leaving) error?.let { note(url, "connection: ${it.message ?: it.javaClass.simpleName}") }
             signedIn = false
             val failed: List<Pending>
             val current: List<Subscription>
@@ -391,7 +396,7 @@ class RelayPool(
                     failedUntil = now + REFUSED_MS
                     limitedUntil = now + REFUSED_MS
                 }
-                retry = current.isNotEmpty() && foreground
+                retry = current.isNotEmpty() && foreground && !leaving
                 if (retry) {
                     val delayMs = maxOf(wait, limitedUntil - now)
                     retryJob?.cancel()

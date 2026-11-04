@@ -73,6 +73,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.io.File
 import java.net.URLEncoder
@@ -536,10 +538,15 @@ class Core(private val context: Context) {
         val relays = dmRelays.value.toSet()
         if (relays.isEmpty()) return
         val since = prefs.getLong("dm_since", 0L).let { if (it == 0L) null else it - 3 * 86400 }
+        val found = ConcurrentHashMap<String, AtomicInteger>()
         sessionSubs += pool.subscribe(
             relays,
             listOf(Filter(kinds = listOf(Kind.GIFT_WRAP), tags = mapOf("p" to listOf(pubkey)), since = since)),
-            onEvent = { wrap, _ -> scope.launch { receiveWrap(wrap) } },
+            onDone = { url, ok -> if (ok) AppLog.add("$url inbox checked: ${found[url]?.get() ?: 0} messages") },
+            onEvent = { wrap, url ->
+                found.getOrPut(url) { AtomicInteger() }.incrementAndGet()
+                scope.launch { receiveWrap(wrap) }
+            },
         )
     }
 
@@ -925,12 +932,20 @@ class Core(private val context: Context) {
         val json = rumor.toJson()
         var delivered = false
         for ((recipient, relays) in targets) {
-            delivered = pool.publishFirst(wrapFor(json, recipient, active), relays.toSet()).ok || delivered
+            val result = pool.publishFirst(wrapFor(json, recipient, active), relays.toSet())
+            AppLog.add("message to ${relays.joinToString(" ")}: " + if (result.ok) "accepted" else "failed ${result.message}")
+            delivered = result.ok || delivered
         }
-        AppLog.add("message to ${targets.size} people: " + if (delivered) "delivered" else "failed")
-        if (!delivered) throw UserError("The message could not be delivered.")
+        if (others.isNotEmpty() && !delivered) throw UserError("The message could not be delivered.")
         val ownCopy = wrapFor(json, active.pubkey, active)
-        scope.launch { pool.publish(ownCopy, mine.toSet()) }
+        if (others.isEmpty()) {
+            // A note to yourself has no one else to reach, so your own inbox has to take it.
+            val result = pool.publishFirst(ownCopy, mine.toSet())
+            AppLog.add("note to self to ${mine.joinToString(" ")}: " + if (result.ok) "accepted" else "failed ${result.message}")
+            if (!result.ok) throw UserError(result.message.takeIf { it.isNotBlank() } ?: "The message could not be delivered.")
+        } else {
+            scope.launch { pool.publish(ownCopy, mine.toSet()) }
+        }
         store.addDm(Dm(rumor.id, roomKey(room), active.pubkey, rumor.createdAt, preview, file))
         changes.tryEmit(Unit)
     }
