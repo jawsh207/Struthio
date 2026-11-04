@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.struthio.nostr.data.Feed
 import app.struthio.nostr.data.FeedSource
+import kotlinx.coroutines.flow.Flow
 
 private val SOURCES = listOf(
     "Following" to FeedSource.Following,
@@ -88,7 +89,7 @@ fun HomeScreen() {
                     selected = it
                 }
             }
-            NoteList(feed, Modifier.weight(1f), empty = if (selected == 0) "Follow people to fill this feed. Trending and Global work right away." else "Nothing here yet.")
+            NoteList(feed, Modifier.weight(1f), scrollToTop = LocalNav.current.homeTapped, empty = if (selected == 0) "Follow people to fill this feed. Trending and Global work right away." else "Nothing here yet.")
         }
         FloatingActionButton(
             onClick = { nav.push(Screen.Compose()) },
@@ -152,7 +153,7 @@ private fun FeedSelector(selected: Int, onSelect: (Int) -> Unit) {
 }
 
 @Composable
-fun NoteList(feed: Feed, modifier: Modifier = Modifier, empty: String = "Nothing here yet.", header: (@Composable () -> Unit)? = null) {
+fun NoteList(feed: Feed, modifier: Modifier = Modifier, scrollToTop: Flow<Unit>? = null, empty: String = "Nothing here yet.", header: (@Composable () -> Unit)? = null) {
     val notes by feed.notes.collectAsState()
     val loading by feed.loading.collectAsState()
     val list = rememberLazyListState()
@@ -163,6 +164,13 @@ fun NoteList(feed: Feed, modifier: Modifier = Modifier, empty: String = "Nothing
         }
     }
     LaunchedEffect(nearEnd) { if (nearEnd) feed.loadMore() }
+    LaunchedEffect(scrollToTop) {
+        scrollToTop?.collect {
+            // From far down, jump closer first so the animation stays short.
+            if (list.firstVisibleItemIndex > 12) list.scrollToItem(12)
+            list.animateScrollToItem(0)
+        }
+    }
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(loading) { if (!loading) refreshing = false }
     PullToRefreshBox(

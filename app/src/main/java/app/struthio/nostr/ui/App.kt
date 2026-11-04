@@ -47,6 +47,7 @@ import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.data.Core
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -73,6 +74,9 @@ class Nav(private val scope: CoroutineScope, private val snackbar: SnackbarHostS
     fun push(screen: Screen) {
         stack += screen
     }
+
+    /** Tapping Home while already there. */
+    val homeTapped = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     fun pop() {
         if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex)
@@ -157,7 +161,10 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                             }
                             ShortNavigationBarItem(
                                 selected = tab == index,
-                                onClick = { tab = index },
+                                onClick = {
+                                    if (index == 0 && tab == 0) nav.homeTapped.tryEmit(Unit)
+                                    tab = index
+                                },
                                 icon = {
                                     BadgedBox(badge = { if (badge > 0) Badge { Text(if (badge > 99) "99+" else badge.toString()) } }) {
                                         Icon(if (tab == index) item.on else item.off, item.label)
