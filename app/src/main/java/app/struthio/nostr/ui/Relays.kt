@@ -242,7 +242,7 @@ fun RelayInfoScreen(url: String) {
     }
     val host = url.removePrefix("wss://")
     Column(Modifier.fillMaxSize()) {
-        BackBar(info?.name ?: host)
+        BackBar("Relay details")
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
