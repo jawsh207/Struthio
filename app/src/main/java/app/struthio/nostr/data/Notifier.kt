@@ -70,7 +70,7 @@ object Notifier {
     }
 
     private fun builder(context: Context, channel: String) = Notification.Builder(context, channel)
-        .setSmallIcon(R.drawable.ic_launcher_foreground)
+        .setSmallIcon(R.drawable.ic_notification)
         .setAutoCancel(true)
 
     /** Message notifications carry no sender and no text: only the app shows those. */
