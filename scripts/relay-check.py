@@ -5,8 +5,8 @@ import websockets
 
 KEY = "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
 GENERAL = ["relay.damus.io", "nos.lol", "relay.primal.net", "relay.snort.social", "nostr.mom", "offchain.pub"]
-MESSAGING = ["relay.0xchat.com", "auth.nostr1.com", "inbox.nostr.wine", "nip17.com", "relay.damus.io", "nos.lol"]
-SEARCH = ["relay.nostr.band", "relay.noswhere.com", "search.nos.today", "antiprimal.net", "relay.ditto.pub"]
+MESSAGING = ["relay.damus.io", "nos.lol", "relay.primal.net", "nostr.mom", "offchain.pub", "relay.snort.social"]
+SEARCH = ["search.nos.today", "relay.ditto.pub", "relay.noswhere.com", "nostr.wine", "relay.azzamo.net", "nostrja-kari-nip50.heguro.com", "nfrelay.app", "relay.nostr.watch", "nostr.polyserv.xyz"]
 LOOKUP = ["purplepag.es", "user.kindpag.es", "indexer.coracle.social", "directory.yabu.me"]
 
 
@@ -71,6 +71,7 @@ async def main():
     jobs += [row(h, {"kinds": [1], "search": "bitcoin", "limit": 5}, "search") for h in SEARCH]
     jobs += [row(h, {"kinds": [0], "search": "fiatjaf", "limit": 5}, "people") for h in SEARCH]
     jobs += [row(h, {"kinds": [10002], "authors": [KEY], "limit": 1}, "lookup") for h in LOOKUP]
+    jobs += [row(h, {"kinds": [0], "limit": 1}, "plain") for h in SEARCH + ["auth.nostr1.com", "purplepag.es"]]
     await asyncio.gather(*jobs)
 
 
