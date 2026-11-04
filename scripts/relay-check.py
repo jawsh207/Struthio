@@ -66,15 +66,58 @@ async def row(host, flt, label):
     )
 
 
+P = 2**256 - 2**32 - 977
+N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+G = (0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
+     0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8)
+
+
+def add(a, b):
+    if a is None or b is None:
+        return a or b
+    if a[0] == b[0] and a[1] != b[1]:
+        return None
+    m = (3 * a[0] * a[0] * pow(2 * a[1], -1, P) if a == b else (b[1] - a[1]) * pow(b[0] - a[0], -1, P)) % P
+    x = (m * m - a[0] - b[0]) % P
+    return x, (m * (a[0] - x) - a[1]) % P
+
+
+def mul(k, point=G):
+    out = None
+    while k:
+        if k & 1:
+            out = add(out, point)
+        point, k = add(point, point), k >> 1
+    return out
+
+
+def tagged(tag, data):
+    h = hashlib.sha256(tag.encode()).digest()
+    return hashlib.sha256(h + h + data).digest()
+
+
+def schnorr(secret, msg):
+    """BIP-340, enough for a throwaway key in this check."""
+    d = int.from_bytes(secret, "big") % N
+    p = mul(d)
+    d = d if p[1] % 2 == 0 else N - d
+    px = p[0].to_bytes(32, "big")
+    t = bytes(a ^ b for a, b in zip(d.to_bytes(32, "big"), tagged("BIP0340/aux", bytes(32))))
+    k = int.from_bytes(tagged("BIP0340/nonce", t + px + msg), "big") % N
+    r = mul(k)
+    k = k if r[1] % 2 == 0 else N - k
+    rx = r[0].to_bytes(32, "big")
+    e = int.from_bytes(tagged("BIP0340/challenge", rx + px + msg), "big") % N
+    return px, rx + ((k + e * d) % N).to_bytes(32, "big")
+
+
 def signed_auth(secret, relay, challenge):
     """NIP-42 sign-in from a throwaway key. Relays check it and never store it."""
-    from coincurve import PrivateKey, PublicKeyXOnly
-    pubkey = PublicKeyXOnly.from_secret(secret).format().hex()
+    pubkey = schnorr(secret, bytes(32))[0].hex()
     created, tags = int(time.time()), [["relay", f"wss://{relay}"], ["challenge", challenge]]
     body = json.dumps([0, pubkey, created, 22242, tags, ""], separators=(",", ":"), ensure_ascii=False)
     digest = hashlib.sha256(body.encode()).digest()
-    sig = PrivateKey(secret).sign_schnorr(digest)
-    return {"id": digest.hex(), "pubkey": pubkey, "created_at": created, "kind": 22242, "tags": tags, "content": "", "sig": sig.hex()}
+    return {"id": digest.hex(), "pubkey": pubkey, "created_at": created, "kind": 22242, "tags": tags, "content": "", "sig": schnorr(secret, digest)[1].hex()}
 
 
 async def sign_in(host):
