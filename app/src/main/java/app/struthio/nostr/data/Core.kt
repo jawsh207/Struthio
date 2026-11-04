@@ -72,6 +72,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicLong
 import java.io.File
 import java.net.URLEncoder
 
@@ -1292,11 +1293,21 @@ class Core(private val context: Context) {
         text?.let(::parseRelayInfo)
     }
 
-    /** How long a relay takes to answer a small request, or null if it didn't. */
+    /**
+     * How long a relay takes to answer a small request, or null if it didn't. Search relays may
+     * only take searches, and some never say they've finished, so a first result counts as well.
+     */
     suspend fun pingRelay(url: String): Long? {
+        val searches = relayInfo(url)?.nips?.contains(50) == true
+        val filter = if (searches) Filter(kinds = listOf(Kind.NOTE), search = "nostr", limit = 1) else Filter(kinds = listOf(Kind.METADATA), limit = 1)
         val start = System.currentTimeMillis()
-        val answered = pool.query(setOf(url), listOf(Filter(kinds = listOf(Kind.METADATA), limit = 1)), 5_000) { _, _ -> }
-        return (System.currentTimeMillis() - start).takeIf { url in answered }
+        val first = AtomicLong()
+        val answered = pool.query(setOf(url), listOf(filter), 5_000) { _, _ -> first.compareAndSet(0, System.currentTimeMillis()) }
+        return when {
+            first.get() > 0 -> first.get() - start
+            url in answered -> System.currentTimeMillis() - start
+            else -> null
+        }
     }
 
     fun relayUses(url: String): List<String> = buildList {
@@ -1329,8 +1340,8 @@ class Core(private val context: Context) {
 
         val DEFAULT_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
         val DEFAULT_LOOKUP_RELAYS = listOf("wss://purplepag.es", "wss://indexer.coracle.social")
-        val DEFAULT_SEARCH_RELAYS = listOf("wss://search.nos.today", "wss://relay.ditto.pub")
-        val DEFAULT_DM_RELAYS = listOf("wss://auth.nostr1.com", "wss://relay.damus.io")
+        val DEFAULT_SEARCH_RELAYS = listOf("wss://relay.ditto.pub", "wss://nostrja-kari-nip50.heguro.com")
+        val DEFAULT_DM_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol")
         val DEFAULT_MEDIA_SERVERS = listOf("https://blossom.primal.net", "https://blossom.band")
 
         val OWN_LISTS = listOf(Kind.METADATA, Kind.FOLLOWS, Kind.MUTES, Kind.BOOKMARKS, Kind.RELAYS, Kind.SEARCH_RELAYS, Kind.DM_RELAYS, Kind.MEDIA_SERVERS)
