@@ -53,6 +53,13 @@ object Http {
 
     fun bytes(url: String): ByteArray = fetch(open(url, true), MAX_FILE)
 
+    /** NIP-11: the same address as the relay's socket, asked for its information document. */
+    fun relayDocument(url: String): String {
+        val conn = open("https://" + url.removePrefix("wss://"), true)
+        conn.setRequestProperty("Accept", "application/nostr+json")
+        return String(fetch(conn, MAX_JSON))
+    }
+
     class Page(val type: String, val html: String?)
 
     /**

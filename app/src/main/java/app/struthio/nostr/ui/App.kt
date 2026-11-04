@@ -58,6 +58,7 @@ sealed interface Screen {
     data class Compose(val quote: String? = null) : Screen
     data class Chat(val room: String) : Screen
     data object NewMessage : Screen
+    data class RelayInfo(val url: String) : Screen
     data object Search : Screen
     data object Settings : Screen
     data object Relays : Screen
@@ -184,6 +185,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                     is Screen.Compose -> ComposeScreen(top.quote)
                     is Screen.Chat -> ChatScreen(top.room)
                     Screen.NewMessage -> NewMessageScreen()
+                    is Screen.RelayInfo -> RelayInfoScreen(top.url)
                     Screen.Search -> SearchScreen()
                     Screen.Settings -> SettingsScreen()
                     Screen.Relays -> RelaysScreen()

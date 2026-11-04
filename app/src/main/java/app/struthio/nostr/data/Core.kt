@@ -19,6 +19,7 @@ import app.struthio.nostr.core.LocalSigner
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.Nip44
 import app.struthio.nostr.core.ReadOnlySigner
+import app.struthio.nostr.core.RelayInfo
 import app.struthio.nostr.core.RelayList
 import app.struthio.nostr.core.Signer
 import app.struthio.nostr.core.Tags
@@ -35,6 +36,7 @@ import app.struthio.nostr.core.parseLinkInfo
 import app.struthio.nostr.core.parseRelayList
 import app.struthio.nostr.core.prepareContent
 import app.struthio.nostr.core.randomBytes
+import app.struthio.nostr.core.parseRelayInfo
 import app.struthio.nostr.core.reactionGlyph
 import app.struthio.nostr.core.replyTags
 import app.struthio.nostr.core.reportTags
@@ -94,6 +96,7 @@ class Core(private val context: Context) {
     val secure = SecureStore(context)
     val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
     val imageDir = File(context.cacheDir, "images")
+    private val relayInfoDir = File(context.cacheDir, "relays")
     val pool = RelayPool(scope) { signer.value }
     val wallet = Wallet(this)
     val media = MediaUploader(this, context)
@@ -296,7 +299,7 @@ class Core(private val context: Context) {
                 val missing = batch - cached.map { it.pubkey }.toSet()
                 missing.chunked(200).forEach { chunk ->
                     pool.query(
-                        (INDEXER_RELAYS + DEFAULT_RELAYS).toSet(),
+                        (lookupRelays() + DEFAULT_RELAYS).toSet(),
                         listOf(Filter(authors = chunk, kinds = listOf(Kind.METADATA, Kind.RELAYS))),
                         onEvent = ::ingest,
                     )
@@ -317,7 +320,7 @@ class Core(private val context: Context) {
         coroutineScope {
             missing.chunked(MAX_AUTHORS).map { chunk ->
                 async {
-                    pool.query(INDEXER_RELAYS.toSet(), listOf(Filter(authors = chunk, kinds = listOf(Kind.RELAYS))), 4_000) { e, relay ->
+                    pool.query(lookupRelays().toSet(), listOf(Filter(authors = chunk, kinds = listOf(Kind.RELAYS))), 4_000) { e, relay ->
                         synchronized(relayLists) { relayLists[e.pubkey] = parseRelayList(e) }
                         ingest(e, relay)
                     }
@@ -439,8 +442,9 @@ class Core(private val context: Context) {
         prefs.edit().putBoolean("account_created_here", true).apply()
         activate(local)
         publish(Draft(local.pubkey, nowSeconds(), Kind.METADATA, emptyList(), JSONObject().put("name", name).toString()))
-        publish(relayListDraft(local.pubkey, RelayList(DEFAULT_RELAYS, DEFAULT_RELAYS)), extraRelays = INDEXER_RELAYS.toSet())
+        publish(relayListDraft(local.pubkey, RelayList(DEFAULT_RELAYS, DEFAULT_RELAYS)), extraRelays = lookupRelays().toSet())
         publish(dmRelayDraft(local.pubkey, DEFAULT_DM_RELAYS))
+        publish(searchRelayDraft(local.pubkey, DEFAULT_SEARCH_RELAYS))
     }
 
     suspend fun signIn(input: String) {
@@ -497,7 +501,7 @@ class Core(private val context: Context) {
         val pubkey = me ?: return
         scope.launch {
             val own = Filter(authors = listOf(pubkey), kinds = OWN_LISTS)
-            val asked = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays()
+            val asked = (lookupRelays() + DEFAULT_RELAYS).toSet() + writeRelays()
             pool.query(asked, listOf(own), onEvent = ::ingest)
             delay(300)
             // The relay list usually arrives in that first round. Lists kept only on the
@@ -703,7 +707,7 @@ class Core(private val context: Context) {
     private suspend fun latestFromRelays(pubkey: String, kind: Int): Boolean {
         val own = writeRelays()
         val answered = pool.query(
-            own + readRelays() + INDEXER_RELAYS + DEFAULT_RELAYS,
+            own + readRelays() + lookupRelays() + DEFAULT_RELAYS,
             listOf(Filter(authors = listOf(pubkey), kinds = listOf(kind), limit = 1)),
             onEvent = ::ingest,
         )
@@ -755,14 +759,14 @@ class Core(private val context: Context) {
 
     suspend fun saveRelays(list: RelayList) {
         val pubkey = author()
-        publish(relayListDraft(pubkey, list), extraRelays = (INDEXER_RELAYS + DEFAULT_RELAYS + myRelays.value.write).toSet())
+        publish(relayListDraft(pubkey, list), extraRelays = (lookupRelays() + DEFAULT_RELAYS + myRelays.value.write).toSet())
         myRelays.value = list.orDefaults()
         startSession()
     }
 
     suspend fun saveDmRelays(relays: List<String>) {
         val pubkey = author()
-        publish(dmRelayDraft(pubkey, relays), extraRelays = INDEXER_RELAYS.toSet() + relays)
+        publish(dmRelayDraft(pubkey, relays), extraRelays = lookupRelays().toSet() + relays)
         dmRelays.value = relays
         startSession()
     }
@@ -789,7 +793,7 @@ class Core(private val context: Context) {
     private suspend fun profileOf(pubkey: String): Profile {
         withContext(Dispatchers.Main) { profiles[pubkey] }?.let { return it }
         store.latest(pubkey, Kind.METADATA)?.let { return parseProfile(it) }
-        pool.query((INDEXER_RELAYS + DEFAULT_RELAYS).toSet(), listOf(Filter(authors = listOf(pubkey), kinds = listOf(Kind.METADATA))), onEvent = ::ingest)
+        pool.query((lookupRelays() + DEFAULT_RELAYS).toSet(), listOf(Filter(authors = listOf(pubkey), kinds = listOf(Kind.METADATA))), onEvent = ::ingest)
         delay(150)
         return store.latest(pubkey, Kind.METADATA)?.let(::parseProfile) ?: throw UserError("Could not load that profile.")
     }
@@ -894,7 +898,7 @@ class Core(private val context: Context) {
 
     private suspend fun dmRelaysOf(pubkey: String): List<String> {
         pool.query(
-            (relaysOf(pubkey)?.write.orEmpty() + INDEXER_RELAYS + DEFAULT_RELAYS).toSet(),
+            (relaysOf(pubkey)?.write.orEmpty() + lookupRelays() + DEFAULT_RELAYS).toSet(),
             listOf(Filter(authors = listOf(pubkey), kinds = listOf(Kind.DM_RELAYS), limit = 1)),
             onEvent = ::ingest,
         )
@@ -995,7 +999,7 @@ class Core(private val context: Context) {
         if (pubkey == me) return@withContext follows.value.toList()
         var newest: Event? = null
         pool.query(
-            (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + relaysOf(pubkey)?.write.orEmpty(),
+            (lookupRelays() + DEFAULT_RELAYS).toSet() + relaysOf(pubkey)?.write.orEmpty(),
             listOf(Filter(authors = listOf(pubkey), kinds = listOf(Kind.FOLLOWS), limit = 1)),
         ) { e, _ ->
             synchronized(this@Core) { if ((newest?.createdAt ?: 0) < e.createdAt) newest = e }
@@ -1006,7 +1010,7 @@ class Core(private val context: Context) {
     /** NIP-45 where relays support it. No relay sees everyone, so this is a floor, not a census. */
     suspend fun followerCount(pubkey: String): Long? = withContext(Dispatchers.IO) {
         pool.count(
-            (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + readRelays(),
+            (lookupRelays() + DEFAULT_RELAYS).toSet() + readRelays(),
             Filter(kinds = listOf(Kind.FOLLOWS), tags = mapOf("p" to listOf(pubkey))),
         )
     }
@@ -1015,7 +1019,7 @@ class Core(private val context: Context) {
     suspend fun followersOf(pubkey: String): List<String> = withContext(Dispatchers.IO) {
         val found = LinkedHashSet<String>()
         pool.query(
-            (INDEXER_RELAYS + DEFAULT_RELAYS).toSet(),
+            (lookupRelays() + DEFAULT_RELAYS).toSet(),
             listOf(Filter(kinds = listOf(Kind.FOLLOWS), tags = mapOf("p" to listOf(pubkey)), limit = 300)),
             8_000,
         ) { e, _ ->
@@ -1033,7 +1037,7 @@ class Core(private val context: Context) {
         if (signer.value is ReadOnlySigner) throw UserError("This account is read-only.")
         val own = writeRelays() + readRelays()
         val answered = pool.query(
-            own + INDEXER_RELAYS + DEFAULT_RELAYS,
+            own + lookupRelays() + DEFAULT_RELAYS,
             listOf(Filter(authors = listOf(pubkey), kinds = PUBLIC_LISTS)),
             8_000,
             onEvent = ::ingest,
@@ -1043,7 +1047,7 @@ class Core(private val context: Context) {
         delay(400)
         val lists = PUBLIC_LISTS.mapNotNull { store.latest(pubkey, it) }
         if (lists.isEmpty()) throw UserError("No lists were found to copy.")
-        val targets = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet()
+        val targets = (lookupRelays() + DEFAULT_RELAYS).toSet()
         val reached = HashSet<String>()
         for (list in lists) {
             pool.publish(list, targets).filterValues { it.ok }.keys.let(reached::addAll)
@@ -1107,7 +1111,7 @@ class Core(private val context: Context) {
         val lists = HashMap<String, Event>()
         for (chunk in mine.toList().chunked(MAX_AUTHORS)) {
             pool.query(
-                (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + readRelays().take(2),
+                (lookupRelays() + DEFAULT_RELAYS).toSet() + readRelays().take(2),
                 listOf(Filter(authors = chunk, kinds = listOf(Kind.FOLLOWS))),
                 10_000,
             ) { e, _ ->
@@ -1184,7 +1188,7 @@ class Core(private val context: Context) {
         val missing = wanted - known
         if (missing.isNotEmpty()) {
             checker.query(
-                (INDEXER_RELAYS + DEFAULT_RELAYS).toSet(),
+                (lookupRelays() + DEFAULT_RELAYS).toSet(),
                 listOf(Filter(authors = missing, kinds = listOf(Kind.METADATA))),
                 onEvent = ::ingest,
             )
@@ -1203,7 +1207,7 @@ class Core(private val context: Context) {
     suspend fun accountCheck(): String = withContext(Dispatchers.IO) {
         val pubkey = me ?: return@withContext "Not signed in."
         val active = signer.value
-        val relays = (INDEXER_RELAYS + DEFAULT_RELAYS).toSet() + writeRelays() + readRelays()
+        val relays = (lookupRelays() + DEFAULT_RELAYS).toSet() + writeRelays() + readRelays()
         pool.clearProblems()
         val report = StringBuilder()
         report.append(Nip19.npub(pubkey)).append('\n')
@@ -1259,7 +1263,48 @@ class Core(private val context: Context) {
     }
 
     suspend fun saveMediaServers(servers: List<String>) {
-        publish(Draft(author(), nowSeconds(), Kind.MEDIA_SERVERS, servers.map { listOf("server", it) }, ""), extraRelays = INDEXER_RELAYS.toSet())
+        publish(Draft(author(), nowSeconds(), Kind.MEDIA_SERVERS, servers.map { listOf("server", it) }, ""), extraRelays = lookupRelays().toSet())
+    }
+
+    /** Where to find people's profiles and relay lists. Kept on this phone, as no list covers it. */
+    fun lookupRelays(): List<String> =
+        prefs.getString("lookup_relays", null)?.split('\n')?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() } ?: DEFAULT_LOOKUP_RELAYS
+
+    fun saveLookupRelays(relays: List<String>) {
+        prefs.edit().putString("lookup_relays", relays.joinToString("\n")).apply()
+    }
+
+    private fun searchRelayDraft(pubkey: String, relays: List<String>) =
+        Draft(pubkey, nowSeconds(), Kind.SEARCH_RELAYS, relays.map { listOf("relay", it) }, "")
+
+    suspend fun saveSearchRelays(relays: List<String>) {
+        publish(searchRelayDraft(author(), relays))
+    }
+
+    /** NIP-11, kept for a day. An old copy is better than nothing while a relay is away. */
+    suspend fun relayInfo(url: String): RelayInfo? = withContext(Dispatchers.IO) {
+        val file = File(relayInfoDir, Hex.encode(sha256(url.toByteArray())))
+        val fresh = file.exists() && System.currentTimeMillis() - file.lastModified() < RELAY_INFO_MS
+        val text = if (fresh) file.readText() else runCatching { Http.relayDocument(url) }.getOrNull()?.also {
+            relayInfoDir.mkdirs()
+            file.writeText(it)
+        } ?: file.takeIf { it.exists() }?.readText()
+        text?.let(::parseRelayInfo)
+    }
+
+    /** How long a relay takes to answer a small request, or null if it didn't. */
+    suspend fun pingRelay(url: String): Long? {
+        val start = System.currentTimeMillis()
+        val answered = pool.query(setOf(url), listOf(Filter(kinds = listOf(Kind.METADATA), limit = 1)), 5_000) { _, _ -> }
+        return (System.currentTimeMillis() - start).takeIf { url in answered }
+    }
+
+    fun relayUses(url: String): List<String> = buildList {
+        if (url in readRelays()) add("Reading your feed")
+        if (url in writeRelays()) add("Posting your notes")
+        if (url in dmRelays.value) add("Private messages")
+        if (url in searchRelays()) add("Search")
+        if (url in lookupRelays()) add("Profile lookup")
     }
 
     fun searchRelays(): Set<String> {
@@ -1272,6 +1317,7 @@ class Core(private val context: Context) {
         const val KEY_NWC = "nwc"
         private const val CACHE_EVENTS = 20_000
         private const val IMAGE_CACHE_BYTES = 80L * 1024 * 1024
+        private const val RELAY_INFO_MS = 86_400_000L
         private const val MAX_FEED_RELAYS = 8
         private const val TRUST_THRESHOLD = 2
         private const val MAX_NOTIFIED_NAMES = 8
@@ -1282,8 +1328,8 @@ class Core(private val context: Context) {
         private const val MAX_PUBLISH_RELAYS = 12
 
         val DEFAULT_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
-        val INDEXER_RELAYS = listOf("wss://purplepag.es", "wss://user.kindpag.es")
-        val DEFAULT_SEARCH_RELAYS = listOf("wss://relay.nostr.band", "wss://search.nos.today")
+        val DEFAULT_LOOKUP_RELAYS = listOf("wss://purplepag.es", "wss://indexer.coracle.social")
+        val DEFAULT_SEARCH_RELAYS = listOf("wss://search.nos.today", "wss://relay.ditto.pub")
         val DEFAULT_DM_RELAYS = listOf("wss://auth.nostr1.com", "wss://relay.damus.io")
         val DEFAULT_MEDIA_SERVERS = listOf("https://blossom.primal.net", "https://blossom.band")
 

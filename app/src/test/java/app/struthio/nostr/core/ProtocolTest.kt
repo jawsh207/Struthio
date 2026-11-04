@@ -310,6 +310,27 @@ class ProtocolTest {
     }
 
     @Test
+    fun relayDocumentsAreRead() {
+        val info = parseRelayInfo(
+            """{"name":"Paid","supported_nips":[1,50,50,"x"],"software":"https://github.com/hoytech/strfry.git","version":"1.0",
+            "limitation":{"auth_required":true,"max_content_length":64000},
+            "fees":{"subscription":[{"amount":5000000,"unit":"msats","period":2592000}],"admission":[{"amount":1000,"unit":"sats"}]}}""",
+        )!!
+        assertEquals("Paid", info.name)
+        assertEquals(listOf(1, 50), info.nips)
+        assertEquals("strfry", info.software)
+        assertEquals(true, info.authRequired)
+        assertNull(info.paymentRequired)
+        assertEquals(listOf("To join: 1,000 sats", "Subscription: 5,000 sats every 30 days"), info.fees)
+        assertEquals("Paid", info.tag)
+        assertEquals(listOf("Longest note (characters)" to "64,000"), info.limits)
+        assertEquals("Search", nipName(50))
+        assertEquals("NIP-99", nipName(99))
+        assertNull(parseRelayInfo("not json"))
+        assertNull(parseRelayInfo("{}")!!.tag)
+    }
+
+    @Test
     fun addressesAreRecognized() {
         assertTrue(isNip05Address("bob@example.com"))
         assertTrue(isNip05Address("_@Example.com"))

@@ -24,6 +24,7 @@ Struthio implements the current form of each specification and writes no depreca
 | 05 | Verified addresses |
 | 09 | Honoring deletions |
 | 10 | Threads with marked `e` tags |
+| 11 | Relay information: cost, access, features and limits |
 | 17, 44, 59 | Private messages: gift wraps and NIP-44 v2 encryption |
 | 18 | Boosts and `q` tag quotes |
 | 19, 21, 27 | Bech32 entities, `nostr:` links, inline references |

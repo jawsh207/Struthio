@@ -16,14 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,15 +28,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -50,8 +42,6 @@ import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.net.Uri
 import app.struthio.nostr.core.Nip19
-import app.struthio.nostr.core.RelayList
-import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.ExternalSigner
 import app.struthio.nostr.data.Notifier
@@ -59,7 +49,7 @@ import app.struthio.nostr.data.SignerBridge
 import org.json.JSONObject
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     Surface(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceBright,
@@ -307,114 +297,6 @@ fun AccountCheckScreen() {
                     nav.say("Report copied")
                 }) { Text("Copy report") }
                 SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall) }
-            }
-        }
-    }
-}
-
-private class EditRelay(val url: String, read: Boolean, write: Boolean) {
-    var read by mutableStateOf(read)
-    var write by mutableStateOf(write)
-}
-
-@Composable
-fun RelaysScreen() {
-    val core = LocalCore.current
-    val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
-    val list by core.myRelays.collectAsState()
-    val dm by core.dmRelays.collectAsState()
-    val relays = remember {
-        mutableStateListOf<EditRelay>().apply {
-            (list.read + list.write).distinct().forEach { add(EditRelay(it, it in list.read, it in list.write)) }
-        }
-    }
-    val dmRelays = remember { mutableStateListOf<String>().apply { addAll(dm) } }
-    var input by remember { mutableStateOf("") }
-    var dmInput by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-
-    Column(Modifier.fillMaxSize().imePadding()) {
-        BackBar("Relays")
-        Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Section("Your relays") {
-                Text("Two to four of each works best.", style = MaterialTheme.typography.bodyMedium)
-                relays.forEach { relay ->
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(relay.url.removePrefix("wss://"), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            IconButton({ relays.remove(relay) }) { Icon(Icons.Rounded.Close, "Remove") }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(relay.read, { relay.read = !relay.read }, { Text("Read") })
-                            FilterChip(relay.write, { relay.write = !relay.write }, { Text("Write") })
-                        }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(input, { input = it }, label = { Text("wss://…") }, singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedButton({
-                        val url = normalizeRelay(input)
-                        if (url == null) {
-                            nav.say("Relays start with wss://")
-                        } else {
-                            if (relays.none { it.url == url }) relays += EditRelay(url, true, true)
-                            input = ""
-                        }
-                    }) { Text("Add") }
-                }
-                Button(
-                    onClick = {
-                        busy = true
-                        scope.act(nav) {
-                            try {
-                                core.saveRelays(RelayList(relays.filter { it.read }.map { it.url }, relays.filter { it.write }.map { it.url }))
-                                nav.say("Relays saved")
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                    enabled = !busy && relays.any { it.write } && relays.any { it.read },
-                ) { Text("Save") }
-            }
-            Section("Message inbox") {
-                Text("Encrypted messages to you go here. One to three is plenty.", style = MaterialTheme.typography.bodyMedium)
-                dmRelays.toList().forEach { url ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(url.removePrefix("wss://"), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        IconButton({ dmRelays.remove(url) }) { Icon(Icons.Rounded.Close, "Remove") }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(dmInput, { dmInput = it }, label = { Text("wss://…") }, singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedButton({
-                        val url = normalizeRelay(dmInput)
-                        if (url == null) {
-                            nav.say("Relays start with wss://")
-                        } else {
-                            if (url !in dmRelays) dmRelays += url
-                            dmInput = ""
-                        }
-                    }) { Text("Add") }
-                }
-                Button(
-                    onClick = {
-                        busy = true
-                        scope.act(nav) {
-                            try {
-                                core.saveDmRelays(dmRelays.toList())
-                                nav.say("Inbox saved")
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    },
-                    enabled = !busy && dmRelays.isNotEmpty(),
-                ) { Text("Save inbox") }
             }
         }
     }

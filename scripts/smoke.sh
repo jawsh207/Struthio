@@ -107,6 +107,28 @@ adb exec-out screencap -p > smoke/09-check.png
 adb shell input keyevent 4
 sleep 2
 adb exec-out screencap -p > smoke/09x-settings.png
+tap_text "Manage relays"
+sleep 7
+adb exec-out screencap -p > smoke/09a-relays.png
+adb exec-out uiautomator dump /dev/tty > smoke/ui.xml 2>/dev/null
+python3 - <<'PY'
+import re,subprocess
+xml=open('smoke/ui.xml',errors='ignore').read()
+m=re.search(r'<node [^>]*text="[a-z0-9.-]+\.[a-z]{2,}"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',xml)
+if m:
+    a,b,c,d=map(int,m.groups())
+    subprocess.run(['adb','shell','input','tap',str((a+c)//2),str((b+d)//2)])
+    print('tapped a relay')
+PY
+sleep 7
+adb exec-out screencap -p > smoke/09b-relay.png
+adb shell input swipe 500 1600 500 500 500
+sleep 2
+adb exec-out screencap -p > smoke/09c-relay.png
+adb shell input keyevent 4
+sleep 2
+adb shell input keyevent 4
+sleep 2
 adb shell input swipe 500 1600 500 500 500
 sleep 2
 adb exec-out screencap -p > smoke/09x2-settings.png
@@ -158,7 +180,7 @@ import base64,glob,io
 from PIL import Image
 files=sorted(glob.glob('smoke/0*.png'))
 w,h=300,660
-files=[f for f in files if not any(x in f for x in ('01-','05-','07-','09-check','09z-edit','09x2-'))][:10]
+files=[f for f in files if not any(x in f for x in ('01-','02b-','03-','05-','07-','09-check','09x-','09y-','09z-edit','09x2-'))][:10]
 sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
 for i,f in enumerate(files):
     sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))

@@ -3,6 +3,7 @@ package app.struthio.nostr.core
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
+import java.util.Locale
 import java.net.URLDecoder
 
 /** NIP-10 and NIP-22: where a note sits in a thread. */
@@ -276,6 +277,101 @@ fun normalizeRelay(url: String): String? {
     if (!u.startsWith("wss://") || u.length < 9) return null
     if (u.any { it.isWhitespace() }) return null
     return u
+}
+
+/** A relay's NIP-11 document. Every field is optional, so null means the relay didn't say. */
+data class RelayInfo(
+    val name: String? = null,
+    val description: String? = null,
+    val icon: String? = null,
+    val banner: String? = null,
+    val operator: String? = null,
+    val contact: String? = null,
+    val software: String? = null,
+    val version: String? = null,
+    val terms: String? = null,
+    val paymentsUrl: String? = null,
+    val nips: List<Int> = emptyList(),
+    val authRequired: Boolean? = null,
+    val paymentRequired: Boolean? = null,
+    val restrictedWrites: Boolean? = null,
+    val fees: List<String> = emptyList(),
+    val limits: List<Pair<String, String>> = emptyList(),
+) {
+    /** The one thing worth knowing from a list of relays. */
+    val tag: String?
+        get() = when {
+            paymentRequired == true || fees.isNotEmpty() -> "Paid"
+            restrictedWrites == true -> "Restricted"
+            authRequired == true -> "Sign-in required"
+            else -> null
+        }
+}
+
+fun parseRelayInfo(json: String): RelayInfo? = runCatching {
+    val o = JSONObject(json)
+    fun text(from: JSONObject, name: String) = from.optString(name).takeIf { it.isNotBlank() && it != "null" }
+    fun flag(from: JSONObject, name: String) = if (from.has(name)) from.optBoolean(name) else null
+    val limits = o.optJSONObject("limitation") ?: JSONObject()
+    val fees = o.optJSONObject("fees") ?: JSONObject()
+    fun feeLines(group: String, label: String) = fees.optJSONArray(group)?.let { list ->
+        (0 until list.length()).mapNotNull { list.optJSONObject(it) }.map { "$label: " + feeText(it) }
+    }.orEmpty()
+    RelayInfo(
+        name = text(o, "name"),
+        description = text(o, "description"),
+        icon = text(o, "icon"),
+        banner = text(o, "banner"),
+        operator = text(o, "pubkey")?.takeIf(Hex::isKey),
+        contact = text(o, "contact"),
+        software = text(o, "software")?.trimEnd('/')?.removeSuffix(".git")?.substringAfterLast('/'),
+        version = text(o, "version"),
+        terms = text(o, "terms_of_service"),
+        paymentsUrl = text(o, "payments_url"),
+        nips = o.optJSONArray("supported_nips")?.let { list ->
+            (0 until list.length()).map { list.optInt(it, -1) }.filter { it >= 0 }.distinct().sorted()
+        }.orEmpty(),
+        authRequired = flag(limits, "auth_required"),
+        paymentRequired = flag(limits, "payment_required"),
+        restrictedWrites = flag(limits, "restricted_writes"),
+        fees = feeLines("admission", "To join") + feeLines("subscription", "Subscription") + feeLines("publication", "Per post"),
+        limits = RELAY_LIMITS.mapNotNull { (key, label) -> limits.optLong(key, 0).takeIf { it > 0 }?.let { label to "%,d".format(Locale.US, it) } },
+    )
+}.getOrNull()
+
+private fun feeText(fee: JSONObject): String {
+    val amount = fee.optLong("amount")
+    val unit = fee.optString("unit").lowercase()
+    val price = when (unit) {
+        "msat", "msats" -> "%,d sats".format(Locale.US, amount / 1000)
+        "sat", "sats" -> "%,d sats".format(Locale.US, amount)
+        else -> "%,d %s".format(Locale.US, amount, unit)
+    }
+    val days = fee.optLong("period") / 86_400
+    return if (days > 0) "$price every $days days" else price
+}
+
+private val RELAY_LIMITS = listOf(
+    "max_content_length" to "Longest note (characters)",
+    "max_message_length" to "Largest message (bytes)",
+    "max_event_tags" to "Tags per note",
+    "max_subscriptions" to "Open requests at once",
+    "max_limit" to "Results per request",
+    "min_pow_difficulty" to "Proof of work needed",
+)
+
+/** What a NIP means to someone using the app. */
+fun nipName(nip: Int): String = when (nip) {
+    9 -> "Deleting notes"
+    17, 59 -> "Private messages"
+    40 -> "Expiring notes"
+    42 -> "Sign-in"
+    45 -> "Counts"
+    50 -> "Search"
+    65 -> "Relay lists"
+    70 -> "Protected notes"
+    77 -> "Fast sync"
+    else -> "NIP-$nip"
 }
 
 /** Greedy cover: the fewest relays that reach each author [redundancy] times. */
