@@ -2,6 +2,7 @@ package app.struthio.nostr.ui
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.text.format.DateFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Entity
@@ -69,6 +70,9 @@ import app.struthio.nostr.data.Room
 import app.struthio.nostr.data.roomKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun MessagesScreen() {
@@ -221,7 +225,12 @@ fun ChatScreen(room: String) {
             contentPadding = PaddingValues(horizontal = PageGutter, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            items(messages, key = { it.id }) { Bubble(it, it.sender == me, others.size > 1, onSave = { file -> saving = file }) }
+            itemsIndexed(messages, key = { _, it -> it.id }) { index, dm ->
+                // The list runs newest first, so the next item is the message before this one.
+                val before = messages.getOrNull(index + 1)
+                if (before == null || dayOf(before.createdAt) != dayOf(dm.createdAt)) DateDivider(dm.createdAt)
+                Bubble(dm, dm.sender == me, others.size > 1, onSave = { file -> saving = file })
+            }
         }
         Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
             Row(
@@ -271,7 +280,7 @@ fun ChatScreen(room: String) {
 private fun Bubble(dm: Dm, mine: Boolean, group: Boolean, onSave: (FileMessage) -> Unit) {
     val core = LocalCore.current
     val colors = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
         Column(
             Modifier
                 .widthIn(max = 300.dp)
@@ -289,9 +298,29 @@ private fun Bubble(dm: Dm, mine: Boolean, group: Boolean, onSave: (FileMessage) 
                     Text("Save file")
                 }
             }
-            Text(relativeTime(dm.createdAt), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
         }
+        Text(
+            DateFormat.getTimeFormat(LocalContext.current).format(Date(dm.createdAt * 1000)),
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 3.dp, bottom = 6.dp),
+        )
     }
+}
+
+private fun dayOf(createdAt: Long): String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(createdAt * 1000))
+
+@Composable
+private fun DateDivider(createdAt: Long) {
+    val thisYear = dayOf(System.currentTimeMillis() / 1000).take(4) == dayOf(createdAt).take(4)
+    val pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(), if (thisYear) "EEEEMMMd" else "EEEEMMMdyyyy")
+    Text(
+        SimpleDateFormat(pattern, Locale.getDefault()).format(Date(createdAt * 1000)),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+    )
 }
 
 /** Decrypted only in memory, and only when the bubble is on screen. */
