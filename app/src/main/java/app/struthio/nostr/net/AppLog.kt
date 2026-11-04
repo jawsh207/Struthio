@@ -22,12 +22,16 @@ object AppLog {
         Regex("\\b[0-9a-f]{64}\\b"),
     )
 
-    fun scrub(text: String): String = SECRETS.fold(text) { out, secret -> out.replace(secret, "[hidden]") }
+    /** Connection errors name this phone's own address, which is nobody else's business. */
+    private val OWN_ADDRESS = Regex(" from /[0-9a-fA-F:.%]+ \\(port \\d+\\)")
+
+    fun scrub(text: String): String =
+        SECRETS.fold(text) { out, secret -> out.replace(secret, "[hidden]") }.replace(OWN_ADDRESS, "")
 
     @Synchronized
     fun start(target: File) {
         file = target
-        runCatching { target.takeIf { it.exists() }?.readLines()?.takeLast(KEEP)?.let(lines::addAll) }
+        runCatching { target.takeIf { it.exists() }?.readLines()?.takeLast(KEEP)?.map(::scrub)?.let(lines::addAll) }
         runCatching { target.writeText(lines.joinToString("\n", postfix = "\n")) }
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->

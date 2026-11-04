@@ -7,6 +7,8 @@ import java.io.EOFException
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -14,6 +16,8 @@ import java.net.URI
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
@@ -23,6 +27,13 @@ import javax.net.ssl.SSLSocketFactory
  * A minimal RFC 6455 client: text messages, fragmentation, ping and pong. One daemon thread per
  * connection reads; [send] writes from the caller's thread, so call it off the main thread.
  */
+/** Takes turns between address families, keeping the system's order within each. */
+internal fun <T> alternateFamilies(items: List<T>, isFirstFamily: (T) -> Boolean): List<T> {
+    val startsWith = items.firstOrNull()?.let(isFirstFamily) ?: return items
+    val (lead, follow) = items.partition { isFirstFamily(it) == startsWith }
+    return List(maxOf(lead.size, follow.size)) { listOfNotNull(lead.getOrNull(it), follow.getOrNull(it)) }.flatten()
+}
+
 class WebSocket(
     private val url: String,
     private val onOpen: () -> Unit,
@@ -50,10 +61,9 @@ class WebSocket(
             val secure = uri.scheme == "wss"
             val host = uri.host ?: throw IOException("no host in $url")
             val port = if (uri.port > 0) uri.port else if (secure) 443 else 80
-            val plain = Socket()
+            val plain = dial(host, port)
             socket = plain
-            plain.tcpNoDelay = true
-            plain.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            if (closing) throw IOException("closed")
             plain.soTimeout = CONNECT_TIMEOUT_MS
             val sock = if (secure) upgradeTls(plain, host, port) else plain
             socket = sock
@@ -74,6 +84,38 @@ class WebSocket(
             }
             onClosed(failure)
         }
+    }
+
+    /**
+     * Happy Eyeballs (RFC 8305): a host can have an address that doesn't work from this network,
+     * often over IPv6, so its addresses race a moment apart and the first to connect wins.
+     */
+    private fun dial(host: String, port: Int): Socket {
+        val addresses = alternateFamilies(InetAddress.getAllByName(host).toList()) { it is Inet6Address }.take(MAX_DIALS)
+        val results = LinkedBlockingQueue<Result<Socket>>()
+        val won = AtomicBoolean()
+        addresses.forEachIndexed { index, address ->
+            Thread({
+                Thread.sleep(index * DIAL_STAGGER_MS)
+                if (won.get()) return@Thread
+                val attempt = Socket()
+                try {
+                    attempt.tcpNoDelay = true
+                    attempt.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
+                    if (won.compareAndSet(false, true)) results.put(Result.success(attempt)) else attempt.close()
+                } catch (e: IOException) {
+                    runCatching { attempt.close() }
+                    results.put(Result.failure(e))
+                }
+            }, "ws-dial").apply { isDaemon = true }.start()
+        }
+        var failure: Throwable = IOException("no address for $host")
+        repeat(addresses.size) {
+            val result = results.take()
+            result.getOrNull()?.let { return it }
+            failure = result.exceptionOrNull() ?: failure
+        }
+        throw failure
     }
 
     private fun upgradeTls(plain: Socket, host: String, port: Int): Socket {
@@ -246,6 +288,8 @@ class WebSocket(
 
     companion object {
         private const val CONNECT_TIMEOUT_MS = 8_000
+        private const val DIAL_STAGGER_MS = 250L
+        private const val MAX_DIALS = 4
         private const val MAX_MESSAGE = 4 * 1024 * 1024L
         private const val OP_CONTINUATION = 0
         private const val OP_TEXT = 1

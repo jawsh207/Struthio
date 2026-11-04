@@ -174,7 +174,7 @@ fun SettingsScreen() {
             }
             Section("Advanced") {
                 Text(
-                    "Logs show relay connections, sign-ins and errors, and stay on this phone until you copy them. They leave out your keys and the text of your notes and messages, but they do list your relays and the phone model.",
+                    "Logs show relay connections, sign-ins and errors, and stay on this phone until you copy them. They leave out your keys, your phone's network address and the text of your notes and messages, but they do list your relays and the phone model.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

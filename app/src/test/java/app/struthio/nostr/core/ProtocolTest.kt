@@ -3,6 +3,7 @@ package app.struthio.nostr.core
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import app.struthio.nostr.net.AppLog
+import app.struthio.nostr.net.alternateFamilies
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -329,6 +330,21 @@ class ProtocolTest {
         assertEquals("NIP-99", nipName(99))
         assertNull(parseRelayInfo("not json"))
         assertNull(parseRelayInfo("{}")!!.tag)
+    }
+
+    @Test
+    fun addressFamiliesTakeTurns() {
+        val six = { a: String -> a.startsWith("6") }
+        assertEquals(listOf("6a", "4a", "6b", "4b", "6c"), alternateFamilies(listOf("6a", "6b", "6c", "4a", "4b"), six))
+        assertEquals(listOf("4a", "6a", "4b"), alternateFamilies(listOf("4a", "4b", "6a"), six))
+        assertEquals(listOf("6a", "6b"), alternateFamilies(listOf("6a", "6b"), six))
+        assertEquals(emptyList<String>(), alternateFamilies(emptyList<String>(), six))
+    }
+
+    @Test
+    fun logsLeaveOutThisPhonesAddress() {
+        val line = "wss://nos.lol connection: failed to connect to nos.lol/2606:4700:20::1 (port 443) from /2603:7080:3001::d9f6 (port 39612) after 8000ms"
+        assertEquals("wss://nos.lol connection: failed to connect to nos.lol/2606:4700:20::1 (port 443) after 8000ms", AppLog.scrub(line))
     }
 
     @Test
