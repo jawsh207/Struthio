@@ -72,9 +72,12 @@ import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Media
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.Part
+import app.struthio.nostr.core.Poll
+import app.struthio.nostr.core.emojiMap
 import app.struthio.nostr.core.noteImages
 import app.struthio.nostr.core.noteVideos
 import app.struthio.nostr.core.parseContent
+import app.struthio.nostr.core.parsePoll
 import app.struthio.nostr.core.repostedEvent
 import app.struthio.nostr.core.values
 import app.struthio.nostr.data.Stats
@@ -154,8 +157,9 @@ fun NoteHeader(event: Event) {
         Avatar(event.pubkey) { nav.push(Screen.Profile(event.pubkey)) }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    core.displayName(event.pubkey),
+                EmojiText(
+                    core.richName(event.pubkey),
+                    profile?.emoji.orEmpty(),
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -188,6 +192,8 @@ private class Body(
     val videos: List<String>,
     val quotes: List<Entity.Note>,
     val preview: String?,
+    val emoji: Map<String, String>,
+    val poll: Poll?,
 )
 
 @Composable
@@ -231,6 +237,8 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
             videos,
             quotes,
             parts.filterIsInstance<Part.Link>().firstOrNull { it.url !in mediaUrls }?.url,
+            emojiMap(event.tags),
+            parsePoll(event),
         )
     }
     val primary = MaterialTheme.colorScheme.primary
@@ -238,7 +246,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
     val text = buildAnnotatedString {
         for (part in body.parts) {
             when (part) {
-                is Part.Text -> append(part.text)
+                is Part.Text -> appendEmoji(part.text, body.emoji)
                 is Part.Tag -> withLink(
                     LinkAnnotation.Clickable("tag", linkStyle) { nav.push(Screen.Hashtag(part.tag)) },
                 ) { append("#" + part.tag) }
@@ -273,10 +281,12 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = if (detail) Int.MAX_VALUE else if (inQuote) 5 else 16,
             overflow = TextOverflow.Ellipsis,
+            inlineContent = emojiImages(body.emoji),
         )
     } else {
         Spacer(Modifier.height(4.dp))
     }
+    body.poll?.let { PollCard(event, it) }
     var viewing by remember(event.id) { mutableStateOf<Int?>(null) }
     body.images.take(if (detail) 12 else 4).forEachIndexed { index, media ->
         NetImage(
@@ -344,6 +354,7 @@ private fun RowScope.ActionButton(
     description: String,
     weight: Float = 1f,
     glyphs: String = "",
+    emoji: Map<String, String> = emptyMap(),
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -361,7 +372,7 @@ private fun RowScope.ActionButton(
     ) {
         Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) Icon(icon, null, Modifier.size(20.dp))
-            if (glyphs.isNotEmpty()) Text(glyphs, fontSize = 16.sp, maxLines = 1)
+            if (glyphs.isNotEmpty()) EmojiText(glyphs, emoji, style = TextStyle(fontSize = 16.sp), maxLines = 1)
             if (label.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
                 Text(label, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
@@ -414,6 +425,7 @@ private fun Actions(event: Event, onReply: ((Event) -> Unit)? = null) {
             count(stats.reactions.toLong()), stats.mine != null, colors.secondaryContainer,
             colors.onSecondaryContainer, "Reactions",
             glyphs = shown,
+            emoji = stats.emoji,
             onLongClick = { picking = true },
         ) {
             // A tap gives a purple heart, and a second tap takes the reaction back.

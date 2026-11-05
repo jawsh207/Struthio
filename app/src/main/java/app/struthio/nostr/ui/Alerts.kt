@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Kind
+import app.struthio.nostr.core.emojiMap
 import app.struthio.nostr.data.Alert
 
 @Composable
@@ -73,9 +74,9 @@ private fun AlertRow(alert: Alert, unread: Boolean, shape: Shape) {
             if (target != null) nav.push(Screen.Thread(target)) else nav.push(Screen.Profile(alert.actor))
         },
         headlineContent = {
-            Text(headline, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = if (unread) FontWeight.Bold else null)
+            EmojiText(headline, emojiMap(e.tags), maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = if (unread) FontWeight.Bold else null)
         },
-        supportingContent = detail.takeIf { it.isNotBlank() }?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
+        supportingContent = detail.takeIf { it.isNotBlank() }?.let { { EmojiText(it, emojiMap(e.tags), maxLines = 2, overflow = TextOverflow.Ellipsis) } },
         leadingContent = { UnreadAvatar(alert.actor, unread, 40.dp) },
         trailingContent = {
             Column {

@@ -10,6 +10,8 @@ import app.struthio.nostr.core.FileMessage
 import app.struthio.nostr.core.Hex
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Zap
+import app.struthio.nostr.core.customGlyph
+import app.struthio.nostr.core.emojiMap
 import app.struthio.nostr.core.fileFromJson
 import app.struthio.nostr.core.fileToJson
 import app.struthio.nostr.core.parseTags
@@ -31,6 +33,7 @@ data class Stats(
     val mineReacted: Boolean = false,
     val mineBoosted: Boolean = false,
     val mineZapped: Boolean = false,
+    val emoji: Map<String, String> = emptyMap(),
 )
 
 data class Dm(
@@ -53,7 +56,7 @@ data class Alert(val event: Event, val actor: String, val msats: Long, val comme
         }
 
     fun headline(name: String): String = when (event.kind) {
-        Kind.REACTION -> "$name reacted ${reactionGlyph(event.content).orEmpty()}".trim()
+        Kind.REACTION -> "$name reacted ${(reactionGlyph(event.content) ?: customGlyph(event.content, event.tags)).orEmpty()}".trim()
         Kind.REPOST, Kind.GENERIC_REPOST -> "$name boosted your note"
         Kind.ZAP_RECEIPT -> "$name zapped ${msats / 1000} sats"
         else -> "$name replied or mentioned you"
@@ -170,6 +173,8 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4
                 e.tags.values("q").forEach { addRef("q", it) }
             }
             Kind.REPOST, Kind.GENERIC_REPOST, Kind.REACTION -> e.tags.values("e").lastOrNull()?.let { addRef("e", it) }
+            // Its own name, so a vote is never counted as a comment on the poll.
+            Kind.POLL_VOTE -> e.tags.values("e").firstOrNull()?.let { addRef("poll", it) }
         }
         if (e.kind in NOTIFYING) e.tags.values("p").distinct().forEach { addRef("p", it) }
         if (e.kind == Kind.NOTE) {
@@ -250,19 +255,24 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4
     }
 
     fun followingFeed(limit: Int, until: Long): List<Event> = events(
-        """SELECT $COLUMNS FROM events WHERE kind IN (1,6) AND root IS NULL AND created_at < ?
+        """SELECT $COLUMNS FROM events WHERE kind IN (1,6,1068) AND root IS NULL AND created_at < ?
            AND pubkey IN (SELECT pubkey FROM follows) ORDER BY created_at DESC LIMIT ?""",
         arrayOf(until.toString(), limit.toString()),
     )
 
     fun authorNotes(pubkey: String, limit: Int, until: Long): List<Event> = events(
-        "SELECT $COLUMNS FROM events WHERE pubkey=? AND kind IN (1,6) AND created_at < ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT $COLUMNS FROM events WHERE pubkey=? AND kind IN (1,6,1068) AND created_at < ? ORDER BY created_at DESC LIMIT ?",
         arrayOf(pubkey, until.toString(), limit.toString()),
     )
 
     fun thread(root: String): List<Event> = events(
-        "SELECT $COLUMNS FROM events WHERE (id=? OR root=?) AND kind IN (1,1111) ORDER BY created_at",
+        "SELECT $COLUMNS FROM events WHERE (id=? OR root=?) AND kind IN (1,1111,1068) ORDER BY created_at",
         arrayOf(root, root),
+    )
+
+    fun votes(poll: String): List<Event> = events(
+        "SELECT $COLUMNS FROM events WHERE kind=1018 AND id IN (SELECT id FROM refs WHERE name='poll' AND value=?)",
+        arrayOf(poll),
     )
 
     fun searchNotes(query: String, limit: Int): List<Event> {
@@ -335,14 +345,17 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4
         }
         val glyphs = HashMap<String, HashMap<String, Int>>()
         readableDatabase.rawQuery(
-            """SELECT r.value, e.content, COUNT(DISTINCT e.pubkey), MAX(e.pubkey=?)
+            """SELECT r.value, e.content, COUNT(DISTINCT e.pubkey), MAX(e.pubkey=?), MIN(e.tags)
                FROM refs r JOIN events e ON e.id=r.id
                WHERE r.value IN ($marks) AND r.name='e' AND e.kind=7 GROUP BY r.value, e.content""",
             arrayOf(who) + ids,
         ).use {
             while (it.moveToNext()) {
                 val id = it.getString(0)
-                val glyph = reactionGlyph(it.getString(1)) ?: continue
+                val tags = runCatching { parseTags(JSONArray(it.getString(4))) }.getOrDefault(emptyList())
+                val glyph = reactionGlyph(it.getString(1)) ?: customGlyph(it.getString(1), tags) ?: continue
+                val emoji = emojiMap(tags).filterKeys { code -> ":$code:" == glyph }
+                if (emoji.isNotEmpty()) out[id] = out.getValue(id).let { s -> s.copy(emoji = s.emoji + emoji) }
                 val counts = glyphs.getOrPut(id) { HashMap() }
                 counts[glyph] = (counts[glyph] ?: 0) + it.getInt(2)
                 if (it.getInt(3) == 1) out[id] = out.getValue(id).copy(mine = glyph)

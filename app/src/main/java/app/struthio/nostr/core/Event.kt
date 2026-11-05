@@ -14,7 +14,9 @@ object Kind {
     const val DM = 14
     const val FILE_DM = 15
     const val GENERIC_REPOST = 16
+    const val POLL_VOTE = 1018
     const val GIFT_WRAP = 1059
+    const val POLL = 1068
     const val COMMENT = 1111
     const val REPORT = 1984
     const val ZAP_REQUEST = 9734

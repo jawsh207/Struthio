@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
+import app.struthio.nostr.core.nowSeconds
 import kotlinx.coroutines.launch
 
 /** Replies in reading order, each under its parent, with depth capped so text stays wide. */
@@ -238,6 +240,7 @@ fun ComposeScreen(quoteId: String?) {
     var sending by remember { mutableStateOf(false) }
     var sensitive by remember { mutableStateOf(false) }
     val attached = remember { mutableStateListOf<Upload>() }
+    var poll by remember { mutableStateOf<PollDraft?>(null) }
     val text = draft.value.text
     if (quoteId == null) {
         // Saved as it is typed, so leaving the screen or the app loses nothing.
@@ -251,8 +254,17 @@ fun ComposeScreen(quoteId: String?) {
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar(if (quoteId == null) "New note" else "Quote note") {
-            AttachImageButton { attached += it }
+            if (poll == null) AttachImageButton { attached += it }
             if (quoteId == null) {
+                IconButton(
+                    {
+                        poll = if (poll == null) PollDraft() else null
+                        attached.clear()
+                    },
+                    colors = if (poll != null) IconButtonDefaults.filledTonalIconButtonColors() else IconButtonDefaults.iconButtonColors(),
+                ) {
+                    Icon(Icons.Rounded.Poll, if (poll != null) "Remove poll" else "Add a poll")
+                }
                 IconButton(
                     {
                         sensitive = !sensitive
@@ -270,7 +282,10 @@ fun ComposeScreen(quoteId: String?) {
                         try {
                             val target = quoted
                             val body = draft.finalText(core::mentionRelays)
-                            if (target != null) core.quote(target, body, attached.toList()) else core.postNote(body, attached.toList(), sensitive)
+                            val building = poll
+                            if (building != null) {
+                                core.postPoll(body, building.filled, building.multiple, building.days?.let { nowSeconds() + it * 86400L })
+                            } else if (target != null) core.quote(target, body, attached.toList()) else core.postNote(body, attached.toList(), sensitive)
                             if (quoteId == null) {
                                 core.prefs.edit().remove("note_draft").apply()
                                 draft.clear()
@@ -281,11 +296,13 @@ fun ComposeScreen(quoteId: String?) {
                         }
                     }
                 },
-                enabled = (text.isNotBlank() || attached.isNotEmpty()) && !sending && (quoteId == null || quoted != null),
+                enabled = !sending && (quoteId == null || quoted != null) &&
+                    (poll?.let { text.isNotBlank() && it.filled.size >= 2 } ?: (text.isNotBlank() || attached.isNotEmpty())),
                 modifier = Modifier.padding(end = 8.dp),
             ) { Text(if (sending) "Posting…" else "Post") }
         }
-        NoteField(draft, "What's on your mind?", Modifier.fillMaxWidth().weight(1f).padding(PageGutter))
+        NoteField(draft, if (poll != null) "Ask a question" else "What's on your mind?", Modifier.fillMaxWidth().weight(1f).padding(PageGutter))
+        poll?.let { PollEditor(it) }
         AttachedImages(attached) { attached.remove(it) }
         quoted?.let {
             Surface(

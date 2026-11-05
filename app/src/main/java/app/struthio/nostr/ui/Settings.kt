@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.ExternalSigner
@@ -86,6 +87,8 @@ fun SettingsScreen() {
     val scope = rememberCoroutineScope()
     val me = core.me ?: return
     var copying by remember { mutableStateOf(false) }
+    var sealing by remember { mutableStateOf(false) }
+    if (sealing) KeyBackupDialog { sealing = false }
     var interval by remember { mutableIntStateOf(core.notifyMinutes()) }
     var trustFilter by remember { mutableStateOf(core.trustFilterEnabled()) }
     var linkPreviews by remember { mutableStateOf(core.linkPreviewsEnabled()) }
@@ -112,6 +115,7 @@ fun SettingsScreen() {
                 }
                 OutlinedButton({ nav.push(Screen.Bookmarks) }) { Text("Bookmarks") }
                 if (core.secure.get(Core.KEY_SECRET) != null) {
+                    OutlinedButton({ sealing = true }) { Text("Encrypted key backup") }
                     if (revealed == null) {
                         OutlinedButton({ confirmReveal = true }) { Text("Back up private key") }
                     } else {
@@ -326,6 +330,60 @@ fun AccountCheckScreen() {
     }
 }
 
+/** Exports the key sealed with a password. Nothing here is saved or sent anywhere. */
+@Composable
+private fun KeyBackupDialog(onClose: () -> Unit) {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var password by remember { mutableStateOf("") }
+    var repeat by remember { mutableStateOf("") }
+    var backup by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val sealed = backup
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Encrypted key backup") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (sealed == null) {
+                    Text("Choose a strong password. Nobody can recover it for you, and without it this backup can't be opened.", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                    OutlinedTextField(repeat, { repeat = it }, label = { Text("Repeat password") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                    if (password.isNotEmpty() && password.length < 12) Text("Use at least 12 characters.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("Keep this somewhere safe. Don't post it publicly, even though it's encrypted.", style = MaterialTheme.typography.bodyMedium)
+                    SelectionContainer { Text(sealed, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        },
+        confirmButton = {
+            if (sealed == null) {
+                TextButton(
+                    {
+                        busy = true
+                        scope.act(nav) {
+                            try {
+                                backup = core.exportEncrypted(password)
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                    enabled = !busy && password.length >= 12 && password == repeat,
+                ) { Text(if (busy) "Encrypting…" else "Encrypt") }
+            } else {
+                TextButton({
+                    context.copy(sealed)
+                    nav.say("Encrypted backup copied")
+                }) { Text("Copy") }
+            }
+        },
+        dismissButton = { TextButton(onClose) { Text("Close") } },
+    )
+}
+
 @Composable
 fun Onboarding(modifier: Modifier = Modifier) {
     val core = LocalCore.current
@@ -334,6 +392,7 @@ fun Onboarding(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var key by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
     fun run(block: suspend () -> Unit) {
@@ -360,8 +419,22 @@ fun Onboarding(modifier: Modifier = Modifier) {
             Button({ run { core.createAccount(name.trim()) } }, enabled = name.isNotBlank() && !busy) { Text("Create account") }
         }
         Section("Already have a key") {
-            OutlinedTextField(key, { key = it }, label = { Text("nsec, or npub to browse read-only") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            FilledTonalButton({ run { core.signIn(key) } }, enabled = key.isNotBlank() && !busy) { Text("Sign in") }
+            OutlinedTextField(key, { key = it }, label = { Text("nsec, ncryptsec, or npub to browse read-only") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            val encrypted = key.trim().startsWith("ncryptsec1")
+            if (encrypted) {
+                OutlinedTextField(
+                    password,
+                    { password = it },
+                    label = { Text("Backup password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            FilledTonalButton(
+                { run { if (encrypted) core.signInEncrypted(key, password) else core.signIn(key) } },
+                enabled = key.isNotBlank() && !busy && (!encrypted || password.isNotEmpty()),
+            ) { Text("Sign in") }
             if (ExternalSigner.isInstalled(context)) {
                 OutlinedButton(
                     onClick = {

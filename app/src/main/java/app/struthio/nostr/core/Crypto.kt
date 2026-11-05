@@ -89,6 +89,27 @@ internal object ChaCha20 {
         s[c] += s[d]; s[b] = rotl(s[b] xor s[c], 7)
     }
 
+    /** The key derivation step of XChaCha20: a subkey from the key and 16 bytes of nonce. */
+    fun hchacha(key: ByteArray, nonce: ByteArray): ByteArray {
+        require(key.size == 32 && nonce.size == 16)
+        val k = ByteBuffer.wrap(key).order(ByteOrder.LITTLE_ENDIAN)
+        val n = ByteBuffer.wrap(nonce).order(ByteOrder.LITTLE_ENDIAN)
+        val s = IntArray(16)
+        s[0] = 0x61707865; s[1] = 0x3320646e; s[2] = 0x79622d32; s[3] = 0x6b206574
+        for (i in 0 until 8) s[4 + i] = k.getInt(i * 4)
+        for (i in 0 until 4) s[12 + i] = n.getInt(i * 4)
+        repeat(10) {
+            quarter(s, 0, 4, 8, 12); quarter(s, 1, 5, 9, 13)
+            quarter(s, 2, 6, 10, 14); quarter(s, 3, 7, 11, 15)
+            quarter(s, 0, 5, 10, 15); quarter(s, 1, 6, 11, 12)
+            quarter(s, 2, 7, 8, 13); quarter(s, 3, 4, 9, 14)
+        }
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        for (i in 0 until 4) out.putInt(s[i])
+        for (i in 12 until 16) out.putInt(s[i])
+        return out.array()
+    }
+
     fun apply(key: ByteArray, nonce: ByteArray, input: ByteArray): ByteArray {
         require(key.size == 32 && nonce.size == 12)
         val k = ByteBuffer.wrap(key).order(ByteOrder.LITTLE_ENDIAN)

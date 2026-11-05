@@ -35,7 +35,7 @@ class Feed(private val core: Core, private val source: FeedSource) {
     private var coverage: Map<String, Set<String>> = emptyMap()
     private var moreRunning = false
 
-    private val kinds = listOf(Kind.NOTE, Kind.REPOST)
+    private val kinds = listOf(Kind.NOTE, Kind.REPOST, Kind.POLL)
 
     /** The trusted network applies to discovery feeds only, never to replies or notifications. */
     private val filtered: Boolean

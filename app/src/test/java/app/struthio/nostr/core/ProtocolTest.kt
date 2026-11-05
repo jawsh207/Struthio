@@ -333,6 +333,75 @@ class ProtocolTest {
     }
 
     @Test
+    fun encryptedBackupsMatchTheNip() {
+        val backup = "ncryptsec1qgg9947rlpvqu76pj5ecreduf9jxhselq2nae2kghhvd5g7dgjtcxfqtd67p9m0w57lspw8gsq6yphnm8623nsl8xn9j4jdzz84zm3frztj3z7s35vpzmqf6ksu8r89qk5z2zxfmu5gv8th8wclt0h4p"
+        assertEquals(
+            "3501454135014541350145413501453fefb02227e449e57cf4d3a3ce05378683",
+            Hex.encode(KeyBackup.decrypt(backup, "nostr")!!),
+        )
+        assertNull(KeyBackup.decrypt(backup, "wrong"))
+    }
+
+    @Test
+    fun encryptedBackupsRoundTrip() {
+        val secret = ByteArray(32) { (it + 1).toByte() }
+        val backup = KeyBackup.encrypt(secret, "ÅΩẛ̣ password", logN = 4)
+        assertTrue(backup.startsWith("ncryptsec1"))
+        assertTrue(secret.contentEquals(KeyBackup.decrypt(backup, "ÅΩẛ̣ password")))
+        assertNull(KeyBackup.decrypt(backup, "other"))
+    }
+
+    @Test
+    fun scryptMatchesItsPublishedVector() {
+        // RFC 7914, section 12, the case with p = 1. Its first 32 bytes.
+        val key = KeyBackup.scrypt("pleaseletmein".toByteArray(), "SodiumChloride".toByteArray(), 14)
+        assertEquals("7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2", Hex.encode(key))
+    }
+
+    @Test
+    fun customEmojiAreFound() {
+        val tags = listOf(listOf("emoji", "soapbox", "https://a.example/s.png"), listOf("emoji", "bad code", "https://a.example/b.png"), listOf("emoji", "http", "http://a.example/h.png"))
+        val emoji = emojiMap(tags)
+        assertEquals(setOf("soapbox"), emoji.keys)
+        assertEquals(listOf("Hi " to false, "soapbox" to true, " and :unknown:" to false), splitEmoji("Hi :soapbox: and :unknown:", emoji))
+        assertEquals("Alex", stripEmoji("Alex :soapbox:", emoji))
+        assertEquals(":soapbox:", customGlyph(":soapbox:", tags))
+        assertNull(customGlyph(":missing:", tags))
+    }
+
+    private fun pollEvent(vararg tags: List<String>) = Event("a".repeat(64), "b".repeat(64), 100, Kind.POLL, tags.toList(), "Pizza?", "c".repeat(128))
+
+    private fun voteEvent(who: Char, at: Long, vararg choices: String) = Event(
+        (who.toString() + at).padEnd(64, '0'), who.toString().repeat(64), at, Kind.POLL_VOTE,
+        listOf(listOf("e", "a".repeat(64))) + choices.map { listOf("response", it) }, "", "c".repeat(128),
+    )
+
+    @Test
+    fun pollsCountOneVotePerPerson() {
+        val yes = listOf("option", "y", "Yes")
+        val no = listOf("option", "n", "No")
+        val poll = parsePoll(pollEvent(yes, no, listOf("endsAt", "500")))!!
+        assertFalse(poll.multiple)
+        val result = countVotes(
+            poll,
+            listOf(voteEvent('d', 10, "y"), voteEvent('d', 20, "n"), voteEvent('e', 30, "y", "n"), voteEvent('f', 600, "y"), voteEvent('1', 40, "zzz")),
+            "d".repeat(64),
+        )
+        assertEquals(mapOf("n" to 1, "y" to 1), result.counts)
+        assertEquals(2, result.voters)
+        assertEquals(setOf("n"), result.mine)
+    }
+
+    @Test
+    fun multipleChoicePollsCountEachOption() {
+        val poll = parsePoll(pollEvent(listOf("option", "y", "Yes"), listOf("option", "n", "No"), listOf("polltype", "multiplechoice")))!!
+        val result = countVotes(poll, listOf(voteEvent('d', 10, "y", "n", "y")), null)
+        assertEquals(mapOf("y" to 1, "n" to 1), result.counts)
+        assertEquals(1, result.voters)
+        assertNull(parsePoll(pollEvent(listOf("option", "y", "Yes"))))
+    }
+
+    @Test
     fun addressFamiliesTakeTurns() {
         val six = { a: String -> a.startsWith("6") }
         assertEquals(listOf("6a", "4a", "6b", "4b", "6c"), alternateFamilies(listOf("6a", "6b", "6c", "4a", "4b"), six))

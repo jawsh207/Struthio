@@ -9,11 +9,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material3.Icon
@@ -21,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,16 +38,25 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.struthio.nostr.core.Hex
 import app.struthio.nostr.core.sha256
+import app.struthio.nostr.core.splitEmoji
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.UserError
 import app.struthio.nostr.net.AppLog
@@ -227,6 +240,43 @@ fun segmentShape(index: Int, count: Int): Shape {
         bottomStart = if (index == count - 1) big else small,
         bottomEnd = if (index == count - 1) big else small,
     )
+}
+
+/** Text with any :shortcodes: from [emoji] drawn as their images (NIP-30). */
+@Composable
+fun EmojiText(
+    text: String,
+    emoji: Map<String, String>,
+    modifier: Modifier = Modifier,
+    style: TextStyle = LocalTextStyle.current,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+) {
+    Text(
+        buildAnnotatedString { appendEmoji(text, emoji) },
+        modifier,
+        color = color,
+        fontWeight = fontWeight,
+        maxLines = maxLines,
+        overflow = overflow,
+        inlineContent = emojiImages(emoji),
+        style = style,
+    )
+}
+
+fun AnnotatedString.Builder.appendEmoji(text: String, emoji: Map<String, String>) {
+    splitEmoji(text, emoji).forEach { (piece, isCode) ->
+        if (isCode) appendInlineContent("emoji:$piece", ":$piece:") else append(piece)
+    }
+}
+
+fun emojiImages(emoji: Map<String, String>): Map<String, InlineTextContent> = emoji.entries.associate { (code, url) ->
+    "emoji:$code" to InlineTextContent(Placeholder(1.3.em, 1.3.em, PlaceholderVerticalAlign.TextCenter)) {
+        val bitmap by rememberImage(url, 40.dp)
+        bitmap?.let { Image(it.asImageBitmap(), code, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+    }
 }
 
 /** A page title, with the button that clears everything unread opposite it. */

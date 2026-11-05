@@ -13,11 +13,13 @@ import app.struthio.nostr.core.FileCipher
 import app.struthio.nostr.core.FileMessage
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Hex
+import app.struthio.nostr.core.KeyBackup
 import app.struthio.nostr.core.Keys
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.LocalSigner
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.Nip44
+import app.struthio.nostr.core.Poll
 import app.struthio.nostr.core.ReadOnlySigner
 import app.struthio.nostr.core.RelayInfo
 import app.struthio.nostr.core.RelayList
@@ -25,6 +27,7 @@ import app.struthio.nostr.core.Signer
 import app.struthio.nostr.core.Tags
 import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.core.chooseRelays
+import app.struthio.nostr.core.emojiMap
 import app.struthio.nostr.core.imetaTag
 import app.struthio.nostr.core.isNip05Address
 import app.struthio.nostr.core.isPreviewable
@@ -37,12 +40,14 @@ import app.struthio.nostr.core.parseRelayList
 import app.struthio.nostr.core.prepareContent
 import app.struthio.nostr.core.randomBytes
 import app.struthio.nostr.core.parseRelayInfo
+import app.struthio.nostr.core.pollTags
 import app.struthio.nostr.core.reactionGlyph
 import app.struthio.nostr.core.replyTags
 import app.struthio.nostr.core.reportTags
 import app.struthio.nostr.core.roomOf
 import app.struthio.nostr.core.secureRandom
 import app.struthio.nostr.core.sha256
+import app.struthio.nostr.core.stripEmoji
 import app.struthio.nostr.core.tagsToJson
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.core.trustedNetwork
@@ -89,6 +94,7 @@ data class Profile(
     val lud06: String?,
     val verified: Boolean = false,
     val raw: String = "{}",
+    val emoji: Map<String, String> = emptyMap(),
 )
 
 class UserError(message: String) : Exception(message)
@@ -276,15 +282,22 @@ class Core(private val context: Context) {
             field("lud16"),
             field("lud06"),
             raw = e.content,
+            emoji = emojiMap(e.tags),
         )
     }
 
     /** Name, then a verified NIP-05 address, then a short npub. Unverified addresses prove nothing. */
     fun displayName(pubkey: String): String {
         val profile = profiles[pubkey]
-        return profile?.name?.takeIf { it.isNotEmpty() }
+        return profile?.name?.let { stripEmoji(it, profile.emoji) }?.takeIf { it.isNotEmpty() }
             ?: profile?.takeIf { it.verified }?.let(::handleOf)
             ?: shortNpub(pubkey)
+    }
+
+    /** The name with its :shortcodes: left in, for places that draw custom emoji. */
+    fun richName(pubkey: String): String {
+        val profile = profiles[pubkey]
+        return if (profile != null && stripEmoji(profile.name, profile.emoji).isNotEmpty()) profile.name else displayName(pubkey)
     }
 
     private fun shortNpub(pubkey: String) = Nip19.npub(pubkey).let { it.take(10) + "…" + it.takeLast(4) }
@@ -451,6 +464,29 @@ class Core(private val context: Context) {
         publish(searchRelayDraft(local.pubkey, DEFAULT_SEARCH_RELAYS))
     }
 
+    /** Null means the password was wrong, or the backup is damaged. */
+    suspend fun signInEncrypted(backup: String, password: String) {
+        val secret = withContext(Dispatchers.Default) {
+            try {
+                KeyBackup.decrypt(backup, password)
+            } catch (_: OutOfMemoryError) {
+                throw UserError("This backup needs more memory than this phone can give it.")
+            }
+        } ?: throw UserError("Wrong password, or the backup is damaged.")
+        adoptSecret(secret)
+    }
+
+    suspend fun exportEncrypted(password: String): String? {
+        val secret = secure.get(KEY_SECRET) ?: return null
+        return withContext(Dispatchers.Default) {
+            try {
+                KeyBackup.encrypt(secret, password)
+            } catch (_: OutOfMemoryError) {
+                throw UserError("There wasn't enough memory for that. Close some apps and try again.")
+            }
+        }
+    }
+
     suspend fun signIn(input: String) {
         val text = input.trim()
         val entity = Nip19.decode(text)
@@ -464,6 +500,10 @@ class Core(private val context: Context) {
             Hex.isKey(text.lowercase()) -> Hex.decode(text.lowercase())
             else -> throw UserError("That is not an nsec or npub.")
         }
+        adoptSecret(secret)
+    }
+
+    private suspend fun adoptSecret(secret: ByteArray) {
         if (!Keys.isValidSecret(secret)) throw UserError("That key is not valid.")
         secure.put(KEY_SECRET, secret)
         prefs.edit().remove("read_only_pubkey").apply()
@@ -1339,6 +1379,30 @@ class Core(private val context: Context) {
     }
 
     fun unreadRooms(me: String): Map<String, Int> = store.unreadRooms(me, prefs.getLong("dms_read", 0L))
+
+    suspend fun loadVotes(event: Event, poll: Poll) {
+        val relays = poll.relays.ifEmpty { readRelays().toList() }.take(MAX_FEED_RELAYS).toSet()
+        pool.query(relays, listOf(Filter(kinds = listOf(Kind.POLL_VOTE), tags = mapOf("e" to listOf(event.id)))), onEvent = ::ingest)
+    }
+
+    /** NIP-88: votes go to the relays the poll names, because that's where results are counted. */
+    suspend fun vote(event: Event, poll: Poll, choices: List<String>) {
+        val active = signer.value ?: throw UserError("Sign in first.")
+        val tags = listOf(listOf("e", event.id)) + choices.map { listOf("response", it) }
+        val signed = active.sign(Draft(active.pubkey, nowSeconds(), Kind.POLL_VOTE, tags, ""))
+        val relays = poll.relays.ifEmpty { writeRelays().toList() }.take(MAX_PUBLISH_RELAYS).toSet()
+        withContext(NonCancellable) {
+            val result = pool.publishFirst(signed, relays)
+            AppLog.add("vote to ${relays.size} relays: " + if (result.ok) "accepted" else "failed ${result.message}")
+            if (!result.ok) throw UserError(result.message.takeIf { it.isNotBlank() } ?: "No relay accepted this vote.")
+            ingest(signed, relays.first())
+        }
+    }
+
+    suspend fun postPoll(question: String, options: List<String>, multiple: Boolean, endsAt: Long?): Event {
+        val (content, tags) = prepareContent(question)
+        return publish(Draft(author(), nowSeconds(), Kind.POLL, tags + pollTags(options, multiple, endsAt, writeRelays().take(4)), content))
+    }
 
     fun readAlert(id: String) {
         scope.launch {

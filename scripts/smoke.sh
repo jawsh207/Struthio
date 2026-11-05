@@ -170,6 +170,9 @@ done
 tap_text "New note"
 sleep 2
 adb exec-out screencap -p > smoke/09zz-compose.png
+tap_text "Add a poll"
+sleep 2
+adb exec-out screencap -p > smoke/09zz2-poll.png
 adb shell input keyevent 4
 sleep 2
 adb shell input keyevent 3
@@ -197,7 +200,7 @@ import base64,glob,io
 from PIL import Image
 files=sorted(glob.glob('smoke/0*.png'))
 w,h=300,660
-files=[f for f in files if not any(x in f for x in ('01-','02b-','03-','04-','05-','06-','08a-','08b-','09-check','09x-','09y-','09z-edit','09x2-','09a-','09b-','09c-'))][:10]
+files=[f for f in files if not any(x in f for x in ('01-','02b-','03-','04-','05-','06-','08a-','08b-','09-check','09x-','09y-','09z-edit','09x2-','09a-','09b-','09c-','07a-'))][:10]
 sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
 for i,f in enumerate(files):
     sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))

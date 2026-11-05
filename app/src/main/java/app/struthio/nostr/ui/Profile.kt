@@ -115,7 +115,7 @@ fun ProfileScreen(pubkey: String) {
                     Avatar(pubkey, 84.dp)
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(core.displayName(pubkey), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                            EmojiText(core.richName(pubkey), profile?.emoji.orEmpty(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
                             if (profile?.verified == true) {
                                 Icon(Icons.Rounded.Verified, "Verified", Modifier.padding(start = 6.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
                             }
@@ -123,7 +123,7 @@ fun ProfileScreen(pubkey: String) {
                         profile?.nip05?.let { Text(it.removePrefix("_@"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
-                profile?.about?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                profile?.about?.takeIf { it.isNotBlank() }?.let { EmojiText(it, profile.emoji, style = MaterialTheme.typography.bodyMedium) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton({ nav.push(Screen.People(pubkey, followers = false)) }) {
                         Text("${followingList?.size?.toLong()?.let(::compact) ?: "–"} following")
@@ -287,7 +287,7 @@ fun PersonRow(core: Core, pubkey: String, shape: Shape, onClick: () -> Unit) {
         onClick,
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(core.displayName(pubkey), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                EmojiText(core.richName(pubkey), core.profiles[pubkey]?.emoji.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (core.profiles[pubkey]?.verified == true) {
                     Icon(Icons.Rounded.Verified, "Verified", Modifier.padding(start = 4.dp).size(14.dp), tint = MaterialTheme.colorScheme.primary)
                 }

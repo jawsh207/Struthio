@@ -35,13 +35,16 @@ Struthio implements the current form of each specification and writes no depreca
 | 40 | Expiration |
 | 42 | Relay authentication, only when a relay demands it |
 | 45 | Follower counts |
+| 30 | Custom emoji in notes, names and reactions |
 | 47 | Nostr Wallet Connect, NIP-44 only |
 | 50 | Search |
+| 49 | Encrypted key backup |
 | 51 | Mute list, bookmarks, search relays |
 | 55 | External signer apps |
 | 56 | Reports |
 | 57 | Zaps, including split tags and receipt validation |
 | 65 | Relay lists and the outbox model |
+| 88 | Polls |
 | 92 | Media attachments |
 | B7 | Blossom uploads and media server lists |
 

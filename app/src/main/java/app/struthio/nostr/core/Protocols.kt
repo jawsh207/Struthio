@@ -374,6 +374,83 @@ fun nipName(nip: Int): String = when (nip) {
     else -> "NIP-$nip"
 }
 
+private val EMOJI_CODE = Regex(":([A-Za-z0-9_-]+):")
+
+/** NIP-30: the custom emoji an event declares, by shortcode. */
+fun emojiMap(tags: Tags): Map<String, String> = tags
+    .filter { it.size >= 3 && it[0] == "emoji" && it[1].matches(Regex("[A-Za-z0-9_-]+")) && it[2].startsWith("https://") }
+    .associate { it[1] to it[2] }
+
+/** Text split around the shortcodes that have an image. The bool marks a shortcode. */
+fun splitEmoji(text: String, emoji: Map<String, String>): List<Pair<String, Boolean>> {
+    if (emoji.isEmpty()) return listOf(text to false)
+    val out = ArrayList<Pair<String, Boolean>>()
+    var index = 0
+    for (match in EMOJI_CODE.findAll(text)) {
+        val code = match.groupValues[1]
+        if (code !in emoji) continue
+        if (match.range.first > index) out += text.substring(index, match.range.first) to false
+        out += code to true
+        index = match.range.last + 1
+    }
+    if (index < text.length) out += text.substring(index) to false
+    return out
+}
+
+fun stripEmoji(text: String, emoji: Map<String, String>): String =
+    splitEmoji(text, emoji).filterNot { it.second }.joinToString("") { it.first }.trim()
+
+/** A custom reaction, kept as its shortcode so it can be drawn from the event's emoji tags. */
+fun customGlyph(content: String, tags: Tags): String? =
+    content.takeIf { EMOJI_CODE.matches(it) && content.trim(':') in emojiMap(tags) }
+
+data class PollOption(val id: String, val label: String)
+
+/** NIP-88. */
+data class Poll(
+    val options: List<PollOption>,
+    val relays: List<String>,
+    val multiple: Boolean,
+    val endsAt: Long?,
+)
+
+fun parsePoll(event: Event): Poll? {
+    if (event.kind != Kind.POLL) return null
+    val options = event.tags.filter { it.size >= 3 && it[0] == "option" }.map { PollOption(it[1], it[2]) }.distinctBy { it.id }
+    if (options.size < 2) return null
+    return Poll(
+        options,
+        event.tags.values("relay").mapNotNull(::normalizeRelay),
+        event.tags.value("polltype") == "multiplechoice",
+        event.tags.value("endsAt")?.toLongOrNull(),
+    )
+}
+
+data class PollResult(val counts: Map<String, Int>, val voters: Int, val mine: Set<String>)
+
+/** One vote per person, their latest within the poll's time. */
+fun countVotes(poll: Poll, votes: List<Event>, me: String?): PollResult {
+    val known = poll.options.map { it.id }.toSet()
+    val latest = votes
+        .filter { it.kind == Kind.POLL_VOTE && (poll.endsAt == null || it.createdAt <= poll.endsAt) }
+        .groupBy { it.pubkey }
+        .mapValues { (_, list) -> list.maxBy { it.createdAt } }
+    val choices = latest.mapValues { (_, vote) ->
+        val responses = vote.tags.values("response")
+        (if (poll.multiple) responses else responses.take(1)).filter { it in known }.toSet()
+    }.filterValues { it.isNotEmpty() }
+    val counts = HashMap<String, Int>()
+    choices.values.forEach { set -> set.forEach { counts[it] = (counts[it] ?: 0) + 1 } }
+    return PollResult(counts, choices.size, me?.let { choices[it] }.orEmpty())
+}
+
+fun pollTags(options: List<String>, multiple: Boolean, endsAt: Long?, relays: List<String>): Tags = buildList {
+    options.forEach { add(listOf("option", Hex.encode(randomBytes(5)), it)) }
+    relays.forEach { add(listOf("relay", it)) }
+    add(listOf("polltype", if (multiple) "multiplechoice" else "singlechoice"))
+    endsAt?.let { add(listOf("endsAt", it.toString())) }
+}
+
 /** Greedy cover: the fewest relays that reach each author [redundancy] times. */
 fun chooseRelays(
     authors: Collection<String>,
