@@ -46,7 +46,7 @@ PY
 NPUB=npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6
 adb shell pm grant "$PKG" android.permission.CAMERA
 adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS
-tap_text "nsec, or npub to browse read-only"
+tap_text "nsec, ncryptsec, or npub to browse read-only"
 adb shell input text "$NPUB"
 sleep 1
 adb shell input keyevent 111
