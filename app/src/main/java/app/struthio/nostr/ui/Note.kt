@@ -104,19 +104,23 @@ fun NoteCard(
     boostedBy: String? = null,
     detail: Boolean = false,
     shape: Shape = RoundedCornerShape(24.dp),
+    highlighted: Boolean = false,
+    onReply: ((Event) -> Unit)? = null,
+    top: (@Composable () -> Unit)? = null,
 ) {
     val nav = LocalNav.current
     Surface(
         onClick = { nav.push(Screen.Thread(event.id)) },
         modifier = modifier.fillMaxWidth(),
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceBright,
+        color = if (highlighted) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceBright,
     ) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = if (boostedBy != null) 12.dp else 16.dp, bottom = 8.dp)) {
             boostedBy?.let { BoostLine(it) }
+            top?.invoke()
             NoteHeader(event)
             NoteBody(event, detail)
-            Actions(event)
+            Actions(event, onReply)
         }
     }
 }
@@ -367,7 +371,7 @@ private fun RowScope.ActionButton(
 }
 
 @Composable
-private fun Actions(event: Event) {
+private fun Actions(event: Event, onReply: ((Event) -> Unit)? = null) {
     val core = LocalCore.current
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
@@ -385,7 +389,7 @@ private fun Actions(event: Event) {
         ActionButton(
             Icons.Outlined.ChatBubbleOutline, count(stats.comments.toLong()), false, colors.secondaryContainer,
             colors.onSecondaryContainer, "Comments",
-        ) { nav.push(Screen.Thread(event.id)) }
+        ) { if (onReply != null) onReply(event) else nav.push(Screen.Thread(event.id)) }
         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
             Row {
                 ActionButton(

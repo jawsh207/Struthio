@@ -111,6 +111,11 @@ adb exec-out screencap -p > smoke/08a-swiped.png
 adb shell input keyevent 4
 sleep 3
 adb exec-out screencap -p > smoke/08b-back.png
+adb shell input touchscreen tap $((W/2)) $((H*40/100))
+sleep 6
+adb exec-out screencap -p > smoke/08c-thread.png
+adb shell input keyevent 4
+sleep 2
 tap_text "Settings"
 sleep 3
 tap_text "Account check"

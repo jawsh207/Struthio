@@ -1,6 +1,7 @@
 package app.struthio.nostr.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,10 +12,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +44,10 @@ import kotlinx.coroutines.delay
 import app.struthio.nostr.data.Feed
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.launch
 
 /** Replies in reading order, each under its parent, with depth capped so text stays wide. */
 private fun ordered(all: List<Event>, rootId: String): List<Pair<Event, Int>> {
@@ -60,6 +67,47 @@ private fun ordered(all: List<Event>, rootId: String): List<Pair<Event, Int>> {
     return out
 }
 
+/** Who a comment answers. Tapping it goes to that comment. */
+@Composable
+private fun ReplyLine(author: String?, onClick: () -> Unit) {
+    val core = LocalCore.current
+    LaunchedEffect(author) { author?.let(core::wantProfile) }
+    Text(
+        "Replying to " + (author?.let(core::displayName) ?: "a note"),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(bottom = 8.dp).clickable(onClick = onClick),
+    )
+}
+
+/** Above the comment box: where this comment is going. */
+@Composable
+private fun ReplyTarget(note: Event, onClear: (() -> Unit)?) {
+    val core = LocalCore.current
+    LaunchedEffect(note.pubkey) { core.wantProfile(note.pubkey) }
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Replying to " + core.displayName(note.pubkey),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                note.content.replace('\n', ' '),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (onClear != null) IconButton(onClear) { Icon(Icons.Rounded.Close, "Reply to the opened note instead") }
+    }
+}
+
 @Composable
 fun ThreadScreen(screen: Screen.Thread) {
     val core = LocalCore.current
@@ -77,6 +125,21 @@ fun ThreadScreen(screen: Screen.Thread) {
     val draft = remember { NoteDraft() }
     var sending by remember { mutableStateOf(false) }
     val attached = remember { mutableStateListOf<Upload>() }
+    var replyTo by remember(screen.id) { mutableStateOf<Event?>(null) }
+    val target = replyTo ?: focus
+    val list = remember(notes, focus) { notes.ifEmpty { listOfNotNull(focus?.let { it to 0 }) } }
+    val rows = remember(list) { list.withIndex().associate { (index, row) -> row.first.id to index } }
+    val listState = rememberLazyListState()
+    val field = remember { FocusRequester() }
+    var placed by remember(screen.id) { mutableStateOf(false) }
+    // Opens at the note that was tapped. Anything loading above it afterwards doesn't move the view.
+    LaunchedEffect(rows) {
+        val row = rows[screen.id]
+        if (!placed && row != null && notes.isNotEmpty()) {
+            placed = true
+            if (row > 0) listState.scrollToItem(row)
+        }
+    }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar("Thread")
@@ -85,21 +148,39 @@ fun ThreadScreen(screen: Screen.Thread) {
         } else {
             LazyColumn(
                 Modifier.weight(1f),
+                state = listState,
                 contentPadding = PaddingValues(horizontal = PageGutter, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                val list = notes.ifEmpty { listOf(focus!! to 0) }
                 itemsIndexed(list, key = { _, it -> it.first.id }) { index, (event, depth) ->
+                    val parent = threadRef(event).parent
                     NoteCard(
                         event,
                         Modifier.padding(start = (minOf(depth, 3) * 12).dp),
                         detail = event.id == screen.id,
                         shape = segmentShape(index, list.size),
+                        highlighted = event.id == target?.id,
+                        onReply = {
+                            replyTo = it
+                            field.requestFocus()
+                        },
+                        top = if (depth > 0 && parent != null) {
+                            {
+                                ReplyLine(list.getOrNull(rows[parent] ?: -1)?.first?.pubkey ?: threadRef(event).parentAuthor) {
+                                    rows[parent]?.let { row -> scope.launch { listState.animateScrollToItem(row) } }
+                                }
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             }
             Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
               Column {
+                target?.let { note ->
+                    ReplyTarget(note, onClear = if (replyTo != null && note.id != focus?.id) ({ replyTo = null }) else null)
+                }
                 AttachedImages(attached) { attached.remove(it) }
                 Row(
                     Modifier.fillMaxWidth().padding(8.dp).navigationBarsPadding(),
@@ -107,16 +188,17 @@ fun ThreadScreen(screen: Screen.Thread) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     AttachImageButton { attached += it }
-                    NoteField(draft, "Add a comment", Modifier.weight(1f), maxLines = 4)
+                    NoteField(draft, "Add a comment", Modifier.weight(1f).focusRequester(field), maxLines = 4)
                     FilledIconButton(
                         onClick = {
-                            val target = focus ?: return@FilledIconButton
+                            val parent = target ?: return@FilledIconButton
                             sending = true
                             scope.act(nav) {
                                 try {
-                                    core.reply(target, draft.finalText(core::mentionRelays), attached.toList())
+                                    core.reply(parent, draft.finalText(core::mentionRelays), attached.toList())
                                     draft.clear()
                                     attached.clear()
+                                    replyTo = null
                                 } finally {
                                     sending = false
                                 }
