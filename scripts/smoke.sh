@@ -116,8 +116,8 @@ sleep 1
 adb shell input touchscreen swipe $((W/2)) $((H*80/100)) $((W/2)) $((H*20/100)) 300
 sleep 3
 adb exec-out screencap -p > smoke/08b2-scrolled.png
-adb shell input touchscreen tap $((W/2)) $((H*40/100))
-sleep 6
+adb shell input touchscreen tap $((W*86/100)) $((H*9/100))
+sleep 4
 adb exec-out screencap -p > smoke/08c-thread.png
 adb shell input keyevent 4
 sleep 2
