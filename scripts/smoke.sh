@@ -111,11 +111,17 @@ adb exec-out screencap -p > smoke/08a-swiped.png
 adb shell input keyevent 4
 sleep 3
 adb exec-out screencap -p > smoke/08b-back.png
+adb shell input touchscreen swipe $((W/2)) $((H*80/100)) $((W/2)) $((H*20/100)) 300
+sleep 1
+adb shell input touchscreen swipe $((W/2)) $((H*80/100)) $((W/2)) $((H*20/100)) 300
+sleep 3
+adb exec-out screencap -p > smoke/08b2-scrolled.png
 adb shell input touchscreen tap $((W/2)) $((H*40/100))
 sleep 6
 adb exec-out screencap -p > smoke/08c-thread.png
 adb shell input keyevent 4
 sleep 2
+adb exec-out screencap -p > smoke/08d-returned.png
 tap_text "Settings"
 sleep 3
 tap_text "Account check"
@@ -200,7 +206,7 @@ import base64,glob,io
 from PIL import Image
 files=sorted(glob.glob('smoke/0*.png'))
 w,h=300,660
-files=[f for f in files if not any(x in f for x in ('01-','02b-','03-','04-','05-','06-','08a-','08b-','09-check','09x-','09y-','09z-edit','09x2-','09a-','09b-','09c-','07a-'))][:10]
+files=[f for f in files if not any(x in f for x in ('01-','08b2-','08c-','08d-','09zz2-'))][:10]
 sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
 for i,f in enumerate(files):
     sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))

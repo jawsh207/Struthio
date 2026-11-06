@@ -32,18 +32,21 @@ import androidx.compose.material3.ShortNavigationBarDefaults
 import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.Nip19
@@ -180,30 +183,40 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                 }
             },
         ) { padding ->
+            // Every screen below the top one stays alive, so going back finds feeds where they were left.
             Box(Modifier.padding(padding)) {
-                when (top) {
-                    null -> HorizontalPager(pager, Modifier.fillMaxSize(), key = { it }) { page ->
-                        when (page) {
-                            0 -> HomeScreen()
-                            1 -> MessagesScreen()
-                            2 -> WalletScreen(pendingWallet) { pendingWallet = null }
-                            else -> AlertsScreen()
+                HorizontalPager(pager, Modifier.fillMaxSize(), key = { it }, userScrollEnabled = top == null) { page ->
+                    when (page) {
+                        0 -> HomeScreen()
+                        1 -> MessagesScreen()
+                        2 -> WalletScreen(pendingWallet) { pendingWallet = null }
+                        else -> AlertsScreen()
+                    }
+                }
+                nav.stack.forEachIndexed { index, screen ->
+                    key(index, screen) {
+                        Surface(
+                            Modifier.fillMaxSize().graphicsLayer { alpha = if (index == nav.stack.lastIndex) 1f else 0f },
+                            color = MaterialTheme.colorScheme.background,
+                        ) {
+                            when (screen) {
+                                is Screen.Thread -> ThreadScreen(screen)
+                                is Screen.Profile -> ProfileScreen(screen.pubkey)
+                                is Screen.People -> PeopleScreen(screen)
+                                is Screen.Hashtag -> HashtagScreen(screen.tag)
+                                is Screen.Compose -> ComposeScreen(screen.quote)
+                                is Screen.Chat -> ChatScreen(screen.room)
+                                Screen.NewMessage -> NewMessageScreen()
+                                is Screen.RelayInfo -> RelayInfoScreen(screen.url)
+                                Screen.Search -> SearchScreen()
+                                Screen.Settings -> SettingsScreen()
+                                Screen.Relays -> RelaysScreen()
+                                Screen.AccountCheck -> AccountCheckScreen()
+                                Screen.EditProfile -> EditProfileScreen()
+                                Screen.Bookmarks -> BookmarksScreen()
+                            }
                         }
                     }
-                    is Screen.Thread -> ThreadScreen(top)
-                    is Screen.Profile -> ProfileScreen(top.pubkey)
-                    is Screen.People -> PeopleScreen(top)
-                    is Screen.Hashtag -> HashtagScreen(top.tag)
-                    is Screen.Compose -> ComposeScreen(top.quote)
-                    is Screen.Chat -> ChatScreen(top.room)
-                    Screen.NewMessage -> NewMessageScreen()
-                    is Screen.RelayInfo -> RelayInfoScreen(top.url)
-                    Screen.Search -> SearchScreen()
-                    Screen.Settings -> SettingsScreen()
-                    Screen.Relays -> RelaysScreen()
-                    Screen.AccountCheck -> AccountCheckScreen()
-                    Screen.EditProfile -> EditProfileScreen()
-                    Screen.Bookmarks -> BookmarksScreen()
                 }
             }
         }
