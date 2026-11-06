@@ -206,7 +206,7 @@ import base64,glob,io
 from PIL import Image
 files=sorted(glob.glob('smoke/0*.png'))
 w,h=300,660
-files=[f for f in files if not any(x in f for x in ('01-','08b2-','08c-','08d-','09zz2-'))][:10]
+files=[f for f in files if any(x in f for x in ('08b-','08b2-','08c-','08d-'))][:10]
 sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
 for i,f in enumerate(files):
     sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))
