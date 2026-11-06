@@ -65,10 +65,13 @@ sealed interface Part {
     data class Lightning(val invoice: Invoice) : Part
 }
 
+private const val INVOICE_PATTERN = """(?<![\p{L}\p{N}])(?i:(?:lightning:)?lnbc[a-z0-9]{50,})"""
+private val INVOICE = Regex(INVOICE_PATTERN)
+
 private val TOKEN = Regex(
     """nostr:(?:npub|nprofile|note|nevent|naddr)1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+""" +
         """|https?://[^\s<>"'`]+""" +
-        """|(?<![\p{L}\p{N}])(?i:(?:lightning:)?lnbc[a-z0-9]{50,})""" +
+        "|$INVOICE_PATTERN" +
         """|(?<![\p{L}\p{N}_/&#])#[\p{L}\p{N}_]+""",
 )
 
@@ -184,6 +187,20 @@ private const val TIMESTAMP_WORDS = 7
 private const val DEFAULT_EXPIRY = 3600L
 private const val TAG_DESCRIPTION = 13
 private const val TAG_EXPIRY = 6
+
+fun invoicesIn(text: String): List<Invoice> = INVOICE.findAll(text).mapNotNull { parseInvoice(it.value) }.toList()
+
+/** The text with each invoice swapped for [with], leaving anything that only looks like one. */
+fun replaceInvoices(text: String, with: (Invoice) -> String): String =
+    INVOICE.replace(text) { match -> parseInvoice(match.value)?.let(with) ?: match.value }
+
+fun formatSats(msats: Long): String =
+    if (msats % 1000 == 0L) "%,d sats".format(Locale.US, msats / 1000) else "%,.3f sats".format(Locale.US, msats / 1000.0)
+
+/** For places with room for one line: notifications, previews and the like. */
+fun summarizeInvoices(text: String): String = replaceInvoices(text) { invoice ->
+    "Lightning invoice" + (invoice.msats?.let { " for " + formatSats(it) } ?: "")
+}
 
 /** Null unless the text is a whole invoice with a valid checksum. */
 fun parseInvoice(raw: String): Invoice? {

@@ -380,6 +380,15 @@ class ProtocolTest {
     }
 
     @Test
+    fun invoicesCanBeSummarized() {
+        assertEquals("Hi Lightning invoice for 100 sats", summarizeInvoices("Hi $sampleInvoice"))
+        assertEquals(listOf(100_000L), invoicesIn("Hi $sampleInvoice").map { it.msats })
+        assertEquals("Hi", replaceInvoices("Hi $sampleInvoice") { "" }.trim())
+        val fake = "lnbc" + "q".repeat(60)
+        assertEquals(fake, summarizeInvoices(fake))
+    }
+
+    @Test
     fun customEmojiAreFound() {
         val tags = listOf(listOf("emoji", "soapbox", "https://a.example/s.png"), listOf("emoji", "bad code", "https://a.example/b.png"), listOf("emoji", "http", "http://a.example/h.png"))
         val emoji = emojiMap(tags)

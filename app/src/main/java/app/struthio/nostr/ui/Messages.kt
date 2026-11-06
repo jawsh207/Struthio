@@ -64,6 +64,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.FileMessage
+import app.struthio.nostr.core.invoicesIn
+import app.struthio.nostr.core.replaceInvoices
+import app.struthio.nostr.core.summarizeInvoices
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.data.Dm
@@ -175,7 +178,7 @@ private fun RoomRow(room: Room, unread: Int, shape: Shape, onClick: () -> Unit) 
             )
         },
         supportingContent = {
-            Text(room.last.content, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (unread > 0) FontWeight.Bold else null)
+            Text(summarizeInvoices(room.last.content), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (unread > 0) FontWeight.Bold else null)
         },
         trailingContent = {
             Column(horizontalAlignment = Alignment.End) {
@@ -306,7 +309,12 @@ private fun Bubble(dm: Dm, mine: Boolean, group: Boolean, onSave: (FileMessage) 
             if (group && !mine) Text(core.displayName(dm.sender), style = MaterialTheme.typography.labelMedium, color = colors.primary)
             val file = dm.file
             when {
-                file == null -> Text(dm.content, color = if (mine) colors.onPrimaryContainer else colors.onSurface)
+                file == null -> {
+                    val invoices = remember(dm.content) { invoicesIn(dm.content) }
+                    val text = remember(dm.content) { replaceInvoices(dm.content) { "" }.trim() }
+                    if (text.isNotEmpty()) Text(text, color = if (mine) colors.onPrimaryContainer else colors.onSurface)
+                    invoices.forEach { InvoiceCard(it) }
+                }
                 file.type.startsWith("image/") -> EncryptedImage(file)
                 else -> TextButton({ onSave(file) }) {
                     Icon(Icons.Rounded.AttachFile, null)

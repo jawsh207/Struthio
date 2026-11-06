@@ -291,7 +291,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
         Spacer(Modifier.height(4.dp))
     }
     body.poll?.let { PollCard(event, it) }
-    body.invoices.take(if (inQuote) 0 else 2).forEach { InvoiceCard(it) }
+    body.invoices.forEach { InvoiceCard(it) }
     var viewing by remember(event.id) { mutableStateOf<Int?>(null) }
     body.images.take(if (detail) 12 else 4).forEachIndexed { index, media ->
         NetImage(

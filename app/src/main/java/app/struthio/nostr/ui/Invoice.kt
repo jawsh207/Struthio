@@ -30,13 +30,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Invoice
+import app.struthio.nostr.core.formatSats
 import app.struthio.nostr.core.nowSeconds
-import java.util.Locale
 
-private fun satsText(msats: Long): String =
-    if (msats % 1000 == 0L) "%,d sats".format(Locale.US, msats / 1000) else "%,.3f sats".format(Locale.US, msats / 1000.0)
-
-/** A BOLT-11 invoice in a note. Paying always stops to ask first. */
+/** A BOLT-11 invoice, wherever one appears. Paying always stops to ask first. */
 @Composable
 fun InvoiceCard(invoice: Invoice) {
     val core = LocalCore.current
@@ -48,7 +45,7 @@ fun InvoiceCard(invoice: Invoice) {
     var paying by remember(invoice.text) { mutableStateOf(false) }
     val paid = core.paidInvoices.containsKey(invoice.text)
     val left = invoice.expiresAt - nowSeconds()
-    val amount = invoice.msats?.let(::satsText)
+    val amount = invoice.msats?.let(::formatSats)
     Surface(
         Modifier.padding(top = 10.dp).fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),

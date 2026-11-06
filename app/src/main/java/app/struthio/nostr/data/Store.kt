@@ -12,6 +12,7 @@ import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Zap
 import app.struthio.nostr.core.customGlyph
 import app.struthio.nostr.core.emojiMap
+import app.struthio.nostr.core.summarizeInvoices
 import app.struthio.nostr.core.fileFromJson
 import app.struthio.nostr.core.fileToJson
 import app.struthio.nostr.core.parseTags
@@ -65,8 +66,8 @@ data class Alert(val event: Event, val actor: String, val msats: Long, val comme
     val detail: String
         get() = when (event.kind) {
             Kind.REACTION, Kind.REPOST, Kind.GENERIC_REPOST -> ""
-            Kind.ZAP_RECEIPT -> comment
-            else -> event.content
+            Kind.ZAP_RECEIPT -> summarizeInvoices(comment)
+            else -> summarizeInvoices(event.content)
         }
 }
 

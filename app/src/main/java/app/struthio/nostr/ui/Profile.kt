@@ -54,7 +54,9 @@ import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Nip19
+import app.struthio.nostr.core.invoicesIn
 import app.struthio.nostr.core.isNip05Address
+import app.struthio.nostr.core.replaceInvoices
 import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.Feed
 import app.struthio.nostr.data.FeedSource
@@ -123,7 +125,11 @@ fun ProfileScreen(pubkey: String) {
                         profile?.nip05?.let { Text(it.removePrefix("_@"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
-                profile?.about?.takeIf { it.isNotBlank() }?.let { EmojiText(it, profile.emoji, style = MaterialTheme.typography.bodyMedium) }
+                profile?.about?.takeIf { it.isNotBlank() }?.let { about ->
+                    val text = replaceInvoices(about) { "" }.trim()
+                    if (text.isNotEmpty()) EmojiText(text, profile.emoji, style = MaterialTheme.typography.bodyMedium)
+                    invoicesIn(about).forEach { InvoiceCard(it) }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton({ nav.push(Screen.People(pubkey, followers = false)) }) {
                         Text("${followingList?.size?.toLong()?.let(::compact) ?: "–"} following")
