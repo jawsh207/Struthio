@@ -358,6 +358,27 @@ class ProtocolTest {
         assertEquals("7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2", Hex.encode(key))
     }
 
+    private val sampleInvoice = "lnbc1u1p4w62kmsp5h5m8d45r4ruyk8pcwepanf6jhrf90hpuqcekrdg4k0j7afm73vwqpp5d5affsylzaeds72vswa30ndaym03r2ald0dnq3t4m0c7myf9lqsqdpz2d68yat5dp5k7gzjv43k26tkv5s9getnwscqzgq9qyysgqs92lsa4zyk2je54wr48vqywrypzhmjx5hrf97jp84wahxm8x3mrjfz2vjau56j2775tdyfk4jz8mpxuy2f59jw6uwdc22a7y7mufv3gpzldp2m"
+
+    @Test
+    fun invoicesAreRead() {
+        val invoice = parseInvoice(sampleInvoice)!!
+        assertEquals(100_000L, invoice.msats)
+        assertEquals("Struthio Receive Test", invoice.memo)
+        assertEquals(1793927899L + 3600, invoice.expiresAt)
+        assertEquals(invoice, parseInvoice("lightning:" + sampleInvoice.uppercase()))
+        assertNull(parseInvoice(sampleInvoice.dropLast(1) + "q"))
+    }
+
+    @Test
+    fun invoicesInNotesBecomeCards() {
+        val parts = parseContent("Pay me: $sampleInvoice thanks")
+        assertEquals(1, parts.filterIsInstance<Part.Lightning>().size)
+        assertEquals("Pay me: ", (parts.first() as Part.Text).text)
+        val broken = "lnbc" + "q".repeat(60)
+        assertEquals(listOf<Part>(Part.Text(broken)), parseContent(broken))
+    }
+
     @Test
     fun customEmojiAreFound() {
         val tags = listOf(listOf("emoji", "soapbox", "https://a.example/s.png"), listOf("emoji", "bad code", "https://a.example/b.png"), listOf("emoji", "http", "http://a.example/h.png"))

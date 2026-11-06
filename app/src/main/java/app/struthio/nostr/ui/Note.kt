@@ -72,6 +72,7 @@ import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Media
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.Part
+import app.struthio.nostr.core.Invoice
 import app.struthio.nostr.core.Poll
 import app.struthio.nostr.core.emojiMap
 import app.struthio.nostr.core.noteImages
@@ -194,6 +195,7 @@ private class Body(
     val preview: String?,
     val emoji: Map<String, String>,
     val poll: Poll?,
+    val invoices: List<Invoice>,
 )
 
 @Composable
@@ -239,6 +241,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
             parts.filterIsInstance<Part.Link>().firstOrNull { it.url !in mediaUrls }?.url,
             emojiMap(event.tags),
             parsePoll(event),
+            parts.filterIsInstance<Part.Lightning>().map { it.invoice },
         )
     }
     val primary = MaterialTheme.colorScheme.primary
@@ -247,6 +250,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
         for (part in body.parts) {
             when (part) {
                 is Part.Text -> appendEmoji(part.text, body.emoji)
+                is Part.Lightning -> Unit
                 is Part.Tag -> withLink(
                     LinkAnnotation.Clickable("tag", linkStyle) { nav.push(Screen.Hashtag(part.tag)) },
                 ) { append("#" + part.tag) }
@@ -287,6 +291,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
         Spacer(Modifier.height(4.dp))
     }
     body.poll?.let { PollCard(event, it) }
+    body.invoices.take(if (inQuote) 0 else 2).forEach { InvoiceCard(it) }
     var viewing by remember(event.id) { mutableStateOf<Int?>(null) }
     body.images.take(if (detail) 12 else 4).forEachIndexed { index, media ->
         NetImage(

@@ -124,7 +124,7 @@ fun PollCard(event: Event, poll: Poll) {
     }
 }
 
-private fun timeLeft(seconds: Long): String = when {
+internal fun timeLeft(seconds: Long): String = when {
     seconds >= 86400 -> "${seconds / 86400}d"
     seconds >= 3600 -> "${seconds / 3600}h"
     else -> "${maxOf(1, seconds / 60)}m"

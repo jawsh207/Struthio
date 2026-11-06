@@ -62,11 +62,13 @@ sealed interface Part {
     data class Link(val url: String) : Part
     data class Tag(val tag: String) : Part
     data class Mention(val raw: String, val entity: Entity) : Part
+    data class Lightning(val invoice: Invoice) : Part
 }
 
 private val TOKEN = Regex(
     """nostr:(?:npub|nprofile|note|nevent|naddr)1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]+""" +
         """|https?://[^\s<>"'`]+""" +
+        """|(?<![\p{L}\p{N}])(?i:(?:lightning:)?lnbc[a-z0-9]{50,})""" +
         """|(?<![\p{L}\p{N}_/&#])#[\p{L}\p{N}_]+""",
 )
 
@@ -83,6 +85,12 @@ fun parseContent(content: String): List<Part> {
                 val entity = Nip19.decode(raw) ?: continue
                 text(match.range.first)
                 parts += Part.Mention(raw, entity)
+                index = match.range.last + 1
+            }
+            !raw.startsWith("#") && !raw.startsWith("http", ignoreCase = true) -> {
+                val invoice = parseInvoice(raw) ?: continue
+                text(match.range.first)
+                parts += Part.Lightning(invoice)
                 index = match.range.last + 1
             }
             raw.startsWith("#") -> {
@@ -167,6 +175,48 @@ fun noteImages(event: Event): List<Media> {
 /** The note inside a repost, when the repost carries it and it is authentic. */
 fun repostedEvent(repost: Event): Event? =
     repost.content.takeIf { it.isNotBlank() }?.let(Event::parse)?.takeIf { it.isValid() }
+
+/** What a Bitcoin mainnet BOLT-11 invoice asks for. The amount is null when the payer chooses. */
+data class Invoice(val text: String, val msats: Long?, val memo: String?, val expiresAt: Long)
+
+private const val SIGNATURE_WORDS = 104
+private const val TIMESTAMP_WORDS = 7
+private const val DEFAULT_EXPIRY = 3600L
+private const val TAG_DESCRIPTION = 13
+private const val TAG_EXPIRY = 6
+
+/** Null unless the text is a whole invoice with a valid checksum. */
+fun parseInvoice(raw: String): Invoice? {
+    val text = raw.trim().lowercase().removePrefix("lightning:")
+    val (hrp, words) = runCatching { Bech32.decodeWords(text) }.getOrNull() ?: return null
+    if (!Regex("lnbc(\\d+[munp]?)?").matches(hrp) || words.size < TIMESTAMP_WORDS + SIGNATURE_WORDS) return null
+    val digits = hrp.removePrefix("lnbc")
+    val msats = if (digits.isEmpty()) null else bolt11Msats(text) ?: return null
+    fun number(from: Int, count: Int): Long {
+        var value = 0L
+        for (i in from until from + count) value = value * 32 + words[i]
+        return value
+    }
+    val created = number(0, TIMESTAMP_WORDS)
+    val end = words.size - SIGNATURE_WORDS
+    var memo: String? = null
+    var expiry = DEFAULT_EXPIRY
+    var at = TIMESTAMP_WORDS
+    while (at + 3 <= end) {
+        val tag = words[at].toInt()
+        val length = number(at + 1, 2).toInt()
+        val start = at + 3
+        if (start + length > end) return null
+        when (tag) {
+            TAG_DESCRIPTION -> memo = runCatching {
+                String(Bech32.wordsToBytes(words.copyOfRange(start, start + length)))
+            }.getOrNull()
+            TAG_EXPIRY -> if (length <= 8) expiry = number(start, length)
+        }
+        at = start + length
+    }
+    return Invoice(text, msats, memo, created + expiry)
+}
 
 /** Amount of a BOLT-11 invoice in millisatoshis, from the human-readable part. */
 fun bolt11Msats(invoice: String): Long? {

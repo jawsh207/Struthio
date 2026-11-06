@@ -122,6 +122,7 @@ class Core(private val context: Context) {
     private val ready = CompletableDeferred<Unit>()
     val bookmarks = MutableStateFlow<Set<String>>(emptySet())
     val deleted = mutableStateMapOf<String, Boolean>()
+    val paidInvoices = mutableStateMapOf<String, Boolean>()
     private val trustedSet = MutableStateFlow<Set<String>>(emptySet())
     val me: String? get() = signer.value?.pubkey
 

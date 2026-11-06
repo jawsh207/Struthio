@@ -58,7 +58,8 @@ object Bech32 {
         }
     }
 
-    fun decode(input: String): Pair<String, ByteArray> {
+    /** The checked 5-bit words, for formats that aren't bytes underneath, such as BOLT-11. */
+    fun decodeWords(input: String): Pair<String, ByteArray> {
         val text = input.lowercase()
         require(input == text || input == input.uppercase()) { "mixed case" }
         val sep = text.lastIndexOf('1')
@@ -68,8 +69,14 @@ object Bech32 {
             CHARSET.indexOf(text[sep + 1 + it]).also { v -> require(v >= 0) { "invalid character" } }
         }
         require(polymod(hrpExpand(hrp) + values) == 1) { "invalid checksum" }
-        val five = ByteArray(values.size - 6) { values[it].toByte() }
-        return hrp to convert(five, 5, 8, false)
+        return hrp to ByteArray(values.size - 6) { values[it].toByte() }
+    }
+
+    fun wordsToBytes(words: ByteArray): ByteArray = convert(words, 5, 8, false)
+
+    fun decode(input: String): Pair<String, ByteArray> {
+        val (hrp, words) = decodeWords(input)
+        return hrp to wordsToBytes(words)
     }
 }
 
