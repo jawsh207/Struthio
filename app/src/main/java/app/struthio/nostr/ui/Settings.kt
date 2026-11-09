@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
@@ -55,9 +56,13 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -71,6 +76,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import app.struthio.nostr.data.Notifier
 import app.struthio.nostr.data.SignerBridge
+import org.json.JSONObject
 
 @Composable
 internal fun Section(title: String, content: @Composable () -> Unit) {
@@ -379,6 +385,85 @@ private fun MediaServersDialog(onClose: () -> Unit) {
         },
         dismissButton = { TextButton(onClose) { Text("Cancel") } },
     )
+}
+
+@Composable
+fun EditProfileScreen() {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val scope = rememberCoroutineScope()
+    val me = core.me ?: return
+    val current = remember { runCatching { JSONObject(core.profiles[me]?.raw ?: "{}") }.getOrDefault(JSONObject()) }
+    var name by remember { mutableStateOf(current.optString("name")) }
+    var displayName by remember { mutableStateOf(current.optString("display_name")) }
+    var about by remember { mutableStateOf(current.optString("about")) }
+    var picture by remember { mutableStateOf(current.optString("picture")) }
+    var nip05 by remember { mutableStateOf(current.optString("nip05")) }
+    var lud16 by remember { mutableStateOf(current.optString("lud16")) }
+    var saving by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize().imePadding()) {
+        BackBar("Edit profile")
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+                OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(about, { about = it }, label = { Text("About") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(picture, { picture = it }, label = { Text("Picture URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(nip05, { nip05 = it }, label = { Text("Nostr address (NIP-05)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(lud16, { lud16 = it }, label = { Text("Lightning address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(
+                    onClick = {
+                        saving = true
+                        scope.act(nav) {
+                            try {
+                                core.saveProfile(
+                                    mapOf(
+                                        "name" to name, "display_name" to displayName, "about" to about,
+                                        "picture" to picture, "nip05" to nip05, "lud16" to lud16,
+                                    ),
+                                )
+                                nav.say("Profile saved")
+                                nav.pop()
+                            } finally {
+                                saving = false
+                            }
+                        }
+                    },
+                    enabled = !saving,
+                ) { Text(if (saving) "Saving…" else "Save profile") }
+        }
+    }
+}
+
+/** Shows what each relay really holds for this account. Everything in the report is public. */
+@Composable
+fun AccountCheckScreen() {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val context = LocalContext.current
+    val report by produceState<String?>(null) { value = core.accountCheck() }
+    Column(Modifier.fillMaxSize()) {
+        BackBar("Account check")
+        val text = report
+        if (text == null) {
+            Text("Asking your relays…", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Loading(Modifier.fillMaxWidth().padding(24.dp))
+        } else {
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FilledTonalButton({
+                    context.copy(text)
+                    nav.say("Report copied")
+                }) { Text("Copy report") }
+                SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
 }
 
 /** Exports the key sealed with a password. Nothing here is saved or sent anywhere. */
