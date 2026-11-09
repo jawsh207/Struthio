@@ -53,6 +53,44 @@ object Http {
 
     fun bytes(url: String): ByteArray = fetch(open(url, true), MAX_FILE)
 
+    /**
+     * Bytes [from]..[to] of a file, and the file's full size when the server gives it. A server
+     * that ignores ranges sends the whole file: only the start is read, then the connection dropped.
+     */
+    fun range(url: String, from: Long, to: Long): Pair<ByteArray, Long?> {
+        val conn = open(url, true)
+        conn.setRequestProperty("Range", "bytes=$from-$to")
+        val wanted = (to - from + 1).toInt()
+        try {
+            val code = conn.responseCode
+            if (code == 206) {
+                val total = conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                return readUpTo(conn, wanted) to total
+            }
+            if (code in 200..299 && from == 0L) {
+                val total = conn.contentLengthLong.takeIf { it > 0 }
+                val bytes = readUpTo(conn, wanted)
+                if (total == null || total > bytes.size) conn.disconnect()
+                return bytes to total
+            }
+            throw IOException("HTTP $code")
+        } catch (e: IOException) {
+            conn.disconnect()
+            throw e
+        }
+    }
+
+    private fun readUpTo(conn: HttpURLConnection, limit: Int): ByteArray = conn.inputStream.use { input ->
+        val out = ByteArrayOutputStream()
+        val buffer = ByteArray(16 * 1024)
+        while (out.size() < limit) {
+            val n = input.read(buffer, 0, minOf(buffer.size, limit - out.size()))
+            if (n < 0) break
+            out.write(buffer, 0, n)
+        }
+        out.toByteArray()
+    }
+
     /** NIP-11: the same address as the relay's socket, asked for its information document. */
     fun relayDocument(url: String): String {
         val conn = open("https://" + url.removePrefix("wss://"), true)

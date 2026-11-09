@@ -632,6 +632,14 @@ fun noteVideos(event: Event): List<String> {
     return links.filter { (it in declared || VIDEO_EXT.matches(it)) && it.startsWith("https://") }.distinct()
 }
 
+/** Thumbnails a note gives for its videos (NIP-92 imeta "image"), by video address. */
+fun videoThumbnails(event: Event): Map<String, String> = event.tags.filter { it.firstOrNull() == "imeta" }.mapNotNull { tag ->
+    val url = tag.firstOrNull { it.startsWith("url ") }?.removePrefix("url ") ?: return@mapNotNull null
+    val image = tag.firstOrNull { it.startsWith("image ") }?.removePrefix("image ")?.trim()
+        ?.takeIf { it.startsWith("https://") } ?: return@mapNotNull null
+    url to image
+}.toMap()
+
 /** What a link turned out to be: a page to show as a card, or media to show directly. */
 data class LinkInfo(
     val url: String,

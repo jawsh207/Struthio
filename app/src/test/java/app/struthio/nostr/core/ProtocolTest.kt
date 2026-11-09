@@ -302,6 +302,21 @@ class ProtocolTest {
     }
 
     @Test
+    fun videoThumbnailsComeFromImeta() {
+        val e = event(
+            Kind.NOTE,
+            listOf(
+                listOf("imeta", "url https://a.example/clip.mp4", "m video/mp4", "image https://a.example/clip.jpg"),
+                listOf("imeta", "url https://a.example/other.mp4", "image http://a.example/plain.jpg"),
+            ),
+            "https://a.example/clip.mp4 https://a.example/other.mp4",
+        )
+        assertEquals(mapOf("https://a.example/clip.mp4" to "https://a.example/clip.jpg"), videoThumbnails(e))
+        // A thumbnail isn't one of the note's own pictures.
+        assertTrue(noteImages(e).isEmpty())
+    }
+
+    @Test
     fun commonVideoFormatsAreRecognized() {
         val base = "https://a.example/v"
         val urls = listOf("$base.MP4", "$base.mkv", "$base.mov?x=1", "$base.m3u8", "$base.avi", "$base.webm#t=5", "$base.3gp", "$base.mpd")

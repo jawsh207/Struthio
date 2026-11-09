@@ -129,10 +129,17 @@ fun ImageViewer(urls: List<String>, start: Int, onClose: () -> Unit) {
     }
 }
 
-/** Tap to play with the platform's own player. Nothing loads until then. */
+/**
+ * Tap to play with the platform's own player. Before that the card shows the note's thumbnail,
+ * or, with link previews on, a still taken from the start of the video.
+ */
 @Composable
-fun VideoCard(url: String) {
+fun VideoCard(url: String, thumbnail: String? = null) {
     val context = LocalContext.current
+    val core = LocalCore.current
+    val frame by produceState<android.graphics.Bitmap?>(null, url, thumbnail) {
+        if (thumbnail == null && core.linkPreviewsEnabled()) value = core.videoFrame(url)
+    }
     var playing by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
@@ -178,12 +185,19 @@ fun VideoCard(url: String) {
                 )
                 if (loading) CircularProgressIndicator(color = Color.White)
             }
-            else -> FilledIconButton(
-                { playing = true },
-                Modifier.size(64.dp),
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB3000000), contentColor = Color.White),
-            ) { Icon(Icons.Rounded.PlayArrow, "Play video", Modifier.size(36.dp)) }
+            else -> {
+                if (thumbnail != null) {
+                    NetImage(thumbnail, 380.dp, Modifier.fillMaxSize())
+                } else {
+                    frame?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                }
+                FilledIconButton(
+                    { playing = true },
+                    Modifier.size(64.dp),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB3000000), contentColor = Color.White),
+                ) { Icon(Icons.Rounded.PlayArrow, "Play video", Modifier.size(36.dp)) }
+            }
         }
     }
 }

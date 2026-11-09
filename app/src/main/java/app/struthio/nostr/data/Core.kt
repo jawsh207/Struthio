@@ -1,6 +1,9 @@
 package app.struthio.nostr.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.mutableStateMapOf
@@ -82,6 +85,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.io.File
+import java.io.RandomAccessFile
 import java.net.URLEncoder
 
 data class Profile(
@@ -112,6 +116,8 @@ class Core(private val context: Context) {
     val media = MediaUploader(this, context)
     private val previewDir = File(context.cacheDir, "previews")
     private val previewSlots = Semaphore(3)
+    private val frameDir = File(context.cacheDir, "frames")
+    private val frameSlots = Semaphore(2)
 
     val signer = MutableStateFlow<Signer?>(null)
 
@@ -155,6 +161,7 @@ class Core(private val context: Context) {
             ready.complete(Unit)
             store.prune(me, CACHE_EVENTS)
             Http.trimCache(imageDir, IMAGE_CACHE_BYTES)
+            Http.trimCache(frameDir, FRAME_CACHE_BYTES)
         }
     }
 
@@ -1135,6 +1142,69 @@ class Core(private val context: Context) {
 
     // Link previews
 
+    /**
+     * A still from the start of a video, for its card before it plays. Only the start of the file
+     * is fetched, plus its end when the video's index is kept there, as phone recordings do; the
+     * gap between stays empty, since the first frame doesn't need it. Kept on disk once made.
+     */
+    suspend fun videoFrame(url: String): Bitmap? = withContext(Dispatchers.IO) {
+        val name = Hex.encode(sha256(url.toByteArray()))
+        val jpg = File(frameDir, "$name.jpg")
+        val none = File(frameDir, "$name.none")
+        if (jpg.exists()) return@withContext BitmapFactory.decodeFile(jpg.path)
+        if (none.exists()) return@withContext null
+        frameSlots.withPermit {
+            frameDir.mkdirs()
+            val part = File(frameDir, "$name.part")
+            try {
+                // Network trouble leaves no mark, so the next look tries again.
+                val (head, total) = runCatching { Http.range(url, 0, FRAME_HEAD - 1) }.getOrNull() ?: return@withPermit null
+                val indexAtStart = head.containsAscii("moov")
+                RandomAccessFile(part, "rw").use { file ->
+                    file.write(head)
+                    if (!indexAtStart && total != null && total > head.size && total <= MAX_VIDEO_BYTES) {
+                        val start = maxOf(head.size.toLong(), total - FRAME_TAIL)
+                        val tail = runCatching { Http.range(url, start, total - 1).first }.getOrNull() ?: return@withPermit null
+                        file.setLength(total)
+                        file.seek(start)
+                        file.write(tail)
+                    }
+                }
+                val frame = runCatching {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(part.path)
+                        retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    } finally {
+                        retriever.release()
+                    }
+                }.getOrNull()
+                if (frame == null) {
+                    none.createNewFile()
+                    return@withPermit null
+                }
+                val scaled = if (frame.width > FRAME_WIDTH) {
+                    Bitmap.createScaledBitmap(frame, FRAME_WIDTH, frame.height * FRAME_WIDTH / frame.width, true)
+                } else {
+                    frame
+                }
+                jpg.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 80, it) }
+                scaled
+            } finally {
+                part.delete()
+            }
+        }
+    }
+
+    private fun ByteArray.containsAscii(word: String): Boolean {
+        val target = word.toByteArray()
+        outer@ for (i in 0..size - target.size) {
+            for (j in target.indices) if (this[i + j] != target[j]) continue@outer
+            return true
+        }
+        return false
+    }
+
     fun linkPreviewsEnabled() = prefs.getBoolean("link_previews", true)
 
     fun setLinkPreviews(on: Boolean) = prefs.edit().putBoolean("link_previews", on).apply()
@@ -1502,6 +1572,11 @@ class Core(private val context: Context) {
         /** One request stays well under the frame limits relays apply. */
         const val MAX_AUTHORS = 400
         private const val MAX_PUBLISH_RELAYS = 12
+        private const val FRAME_HEAD = 1_536 * 1024L
+        private const val FRAME_TAIL = 1_024 * 1024L
+        private const val FRAME_WIDTH = 640
+        private const val MAX_VIDEO_BYTES = 4L * 1024 * 1024 * 1024
+        private const val FRAME_CACHE_BYTES = 24L * 1024 * 1024
 
         /** How long a failed event is reused for retries; after that a retry is a new post. */
         private const val RETRY_SAME_EVENT_S = 60 * 60L

@@ -77,6 +77,7 @@ import app.struthio.nostr.core.Poll
 import app.struthio.nostr.core.emojiMap
 import app.struthio.nostr.core.noteImages
 import app.struthio.nostr.core.noteVideos
+import app.struthio.nostr.core.videoThumbnails
 import app.struthio.nostr.core.parseContent
 import app.struthio.nostr.core.parsePoll
 import app.struthio.nostr.core.repostedEvent
@@ -192,6 +193,7 @@ private class Body(
     val parts: List<Part>,
     val images: List<Media>,
     val videos: List<String>,
+    val thumbnails: Map<String, String>,
     val quotes: List<Entity.Note>,
     val preview: String?,
     val emoji: Map<String, String>,
@@ -238,6 +240,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
             },
             images,
             videos,
+            videoThumbnails(event),
             quotes,
             parts.filterIsInstance<Part.Link>().firstOrNull { it.url !in mediaUrls }?.url,
             emojiMap(event.tags),
@@ -308,7 +311,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
     }
     viewing?.let { start -> ImageViewer(body.images.map { it.url }, start) { viewing = null } }
     if (!inQuote) {
-        body.videos.take(2).forEach { VideoCard(it) }
+        body.videos.take(2).forEach { VideoCard(it, body.thumbnails[it]) }
         if (body.images.isEmpty() && body.videos.isEmpty()) body.preview?.let { link ->
             val embed = if (core.videoEmbedsEnabled()) videoEmbed(link) else null
             when {
