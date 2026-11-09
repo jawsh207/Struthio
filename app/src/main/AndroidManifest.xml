@@ -33,6 +33,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -46,12 +47,6 @@
                 <data android:scheme="nostr+walletconnect" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".ui.VideoActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Struthio.Video"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
-            android:supportsPictureInPicture="false" />
         <service
             android:name=".data.CheckService"
             android:exported="false"
