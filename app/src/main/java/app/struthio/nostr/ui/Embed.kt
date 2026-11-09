@@ -3,7 +3,11 @@ package app.struthio.nostr.ui
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -45,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.struthio.nostr.core.LinkInfo
 import app.struthio.nostr.core.VideoEmbed
+import app.struthio.nostr.net.AppLog
 
 /**
  * A video from a hosting site. Nothing is fetched from that site until play is tapped, apart
@@ -117,6 +122,23 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                             return true
                         }
                         return false
+                    }
+
+                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                        AppLog.add("video ${embed.site}: ${request.url.host} failed: ${error.description}")
+                    }
+
+                    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                        AppLog.add("video ${embed.site}: ${request.url.host}${request.url.path} answered ${response.statusCode}")
+                    }
+                }
+                webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                            AppLog.add("video ${embed.site}: ${message.message().take(160)}")
+                        }
+                        android.util.Log.i("StruthioEmbed", "${message.messageLevel()} ${message.message()}")
+                        return true
                     }
                 }
                 // An iframe from a fixed origin, because some sites refuse to play without a referrer.

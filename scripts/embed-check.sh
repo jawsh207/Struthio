@@ -51,7 +51,9 @@ adb exec-out uiautomator dump /dev/tty > smoke/ui.xml 2>/dev/null
 adb shell input tap $(cat smoke/last.txt); sleep 10
 adb exec-out screencap -p > smoke/e5-tapped.png
 adb logcat -d > smoke/logcat.txt
-grep -iE "chromium|console|youtube|webview|cr_" smoke/logcat.txt | grep -v "^--" | tail -60
+PID=$(adb shell pidof $PKG)
+echo "--- app log lines"
+adb logcat -d --pid=$PID | grep -vE "Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|gralloc" | tail -80
 python3 - <<'PY'
 import base64,glob,io
 from PIL import Image
