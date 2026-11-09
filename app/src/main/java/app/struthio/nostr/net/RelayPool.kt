@@ -145,7 +145,19 @@ class RelayPool(
                 }.joinAll()
             }
             urls.forEach { relays[it]?.forget(event.id) }
-            answer.complete(pending.values.firstOrNull { it.isCompleted }?.getCompleted() ?: PublishResult(false, "timed out"))
+            if (!answer.isCompleted) {
+                // What each relay did, so a failed post can be explained from the logs.
+                val each = pending.map { (url, sent) ->
+                    val what = if (sent.isCompleted) sent.getCompleted().message.ifBlank { "refused" } else "no answer"
+                    "${url.removePrefix("wss://")}: $what"
+                }
+                AppLog.add("kind ${event.kind} not taken: ${each.joinToString("; ")}")
+                val silent = pending.values.any { !it.isCompleted }
+                answer.complete(
+                    PublishResult(false, if (silent) "No relay answered in time. Check your connection and try again." else
+                        pending.values.first().getCompleted().message.ifBlank { "No relay accepted this." }),
+                )
+            }
         }
         return answer.await()
     }
@@ -238,6 +250,12 @@ class RelayPool(
 
         /** Events held until the open REQs are out, so an instant answer to them isn't missed. */
         private val afterReqs = ArrayList<String>()
+
+        /** Whether REQs are still going out; guarded by the lock, unlike the pacer job's own state. */
+        private var pumping = false
+
+        /** Bumped when the connection closes, so a pacer from the old connection stops quietly. */
+        private var pumpRound = 0
         private var challenge: String? = null
         private var authEventId: String? = null
 
@@ -267,17 +285,28 @@ class RelayPool(
 
         /** REQs go out one at a time and only so many stay open, because relays limit both. */
         private fun pump() {
-            if (!open || pacer?.isActive == true) return
+            val round = synchronized(lock) {
+                if (!open || pumping) return
+                pumping = true
+                pumpRound
+            }
             pacer = scope.launch {
                 while (true) {
+                    // Stopping and handing over the held events happen under one lock, so an event
+                    // arriving as the last REQ goes out is either held and sent here, or sent directly.
+                    var held: List<String> = emptyList()
                     val next = synchronized(lock) {
-                        if (!open || sent.size >= MAX_OPEN_SUBS) null
+                        if (round != pumpRound) return@launch
+                        val n = if (!open || sent.size >= MAX_OPEN_SUBS) null
                         else subs.values.firstOrNull { it.id !in sent }?.also { sent += it.id }
+                        if (n == null) {
+                            if (open) held = afterReqs.toList()
+                            afterReqs.clear()
+                            pumping = false
+                        }
+                        n
                     }
                     if (next == null) {
-                        val held = synchronized(lock) {
-                            if (!open) emptyList() else afterReqs.toList().also { afterReqs.clear() }
-                        }
                         held.forEach { socket?.send(it) }
                         break
                     }
@@ -325,7 +354,7 @@ class RelayPool(
                 pending[event.id] = Pending(event, deferred)
                 idleJob?.cancel()
                 ensureConnected()
-                if (open && pacer?.isActive == true) {
+                if (open && pumping) {
                     afterReqs += "[\"EVENT\",${event.toJson()}]"
                     false
                 } else {
@@ -401,6 +430,8 @@ class RelayPool(
                 socket = null
                 sent.clear()
                 afterReqs.clear()
+                pumping = false
+                pumpRound++
                 challenge = null
                 authEventId = null
                 waitingForAuth.clear()
