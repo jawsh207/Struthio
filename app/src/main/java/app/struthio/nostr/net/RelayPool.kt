@@ -235,6 +235,9 @@ class RelayPool(
         private var limitedUntil = 0L
         private val sent = HashSet<String>()
         private var pacer: Job? = null
+
+        /** Events held until the open REQs are out, so an instant answer to them isn't missed. */
+        private val afterReqs = ArrayList<String>()
         private var challenge: String? = null
         private var authEventId: String? = null
 
@@ -270,7 +273,14 @@ class RelayPool(
                     val next = synchronized(lock) {
                         if (!open || sent.size >= MAX_OPEN_SUBS) null
                         else subs.values.firstOrNull { it.id !in sent }?.also { sent += it.id }
-                    } ?: break
+                    }
+                    if (next == null) {
+                        val held = synchronized(lock) {
+                            if (!open) emptyList() else afterReqs.toList().also { afterReqs.clear() }
+                        }
+                        held.forEach { socket?.send(it) }
+                        break
+                    }
                     socket?.send(next.request)
                     delay(REQ_SPACING_MS)
                 }
@@ -315,7 +325,12 @@ class RelayPool(
                 pending[event.id] = Pending(event, deferred)
                 idleJob?.cancel()
                 ensureConnected()
-                open
+                if (open && pacer?.isActive == true) {
+                    afterReqs += "[\"EVENT\",${event.toJson()}]"
+                    false
+                } else {
+                    open
+                }
             }
             if (send) write("[\"EVENT\",${event.toJson()}]")
             return deferred
@@ -358,8 +373,12 @@ class RelayPool(
                 open = true
                 openedAt = System.currentTimeMillis()
                 sent.clear()
+                afterReqs.clear()
+                // Subscriptions go out before queued events: a wallet answers at once and its
+                // answers aren't stored, so a request sent ahead of the listener loses its answer.
+                afterReqs += pending.values.map { "[\"EVENT\",${it.event.toJson()}]" }
                 pump()
-                pending.values.map { "[\"EVENT\",${it.event.toJson()}]" } + counts.values.map { it.first }
+                counts.values.map { it.first }
             }
             requests.forEach { socket?.send(it) }
         }
@@ -381,6 +400,7 @@ class RelayPool(
                 open = false
                 socket = null
                 sent.clear()
+                afterReqs.clear()
                 challenge = null
                 authEventId = null
                 waitingForAuth.clear()
