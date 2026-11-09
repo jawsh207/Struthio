@@ -46,11 +46,11 @@ sleep 8
 adb exec-out screencap -p > smoke/e3-play.png
 sleep 8
 adb exec-out screencap -p > smoke/e4-later.png
-# The player has to follow the card as the note scrolls, and stay inside the list.
-adb shell input swipe $((W/2)) $((H*60/100)) $((W/2)) $((H*45/100)) 500; sleep 2
-adb exec-out screencap -p > smoke/e5-scrolled.png
-adb shell input swipe $((W/2)) $((H*60/100)) $((W/2)) $((H*30/100)) 500; sleep 2
-adb exec-out screencap -p > smoke/e6-under-bar.png
+# The player has to follow the card when the list moves, and stay inside it: the keyboard squeezes the list.
+find_tap "Add a comment"; sleep 3
+adb exec-out screencap -p > smoke/e5-keyboard.png
+adb shell input keyevent 4; sleep 2
+adb exec-out screencap -p > smoke/e6-keyboard-closed.png
 adb logcat -d > smoke/logcat.txt
 PID=$(adb shell pidof $PKG)
 echo "--- app log lines"
