@@ -6,6 +6,7 @@ APK=app/build/outputs/apk/release/app-x86_64-release.apk
 PKG=app.struthio.nostr
 NOTE=$(cat smoke/note.txt)
 adb install -r "$APK"
+adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS
 adb logcat -c
 adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null
 sleep 8
@@ -39,7 +40,7 @@ adb shell input keyevent 4; sleep 2
 adb shell am start -a android.intent.action.VIEW -d "nostr:$NOTE" >/dev/null
 sleep 12
 adb exec-out screencap -p > smoke/e2-note.png
-find_tap "Play on YouTube" 3
+find_tap "Play on YouTube" 4
 sleep 6
 adb exec-out screencap -p > smoke/e3-play.png
 sleep 12

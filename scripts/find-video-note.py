@@ -52,8 +52,9 @@ async def scan(host):
 async def main():
     for host in ["relay.primal.net", "nos.lol", "relay.damus.io"]:
         notes = await scan(host)
+        notes = [n for n in notes if len(n["content"]) < 300]
         if notes:
-            e = notes[0]
+            e = min(notes, key=lambda n: len(n["content"]))
             print(re.search(r"\S*(youtube\.com/watch\?v=|youtu\.be/)\S*", e["content"]).group(0), file=sys.stderr)
             print(bech32("note", bytes.fromhex(e["id"])))
             return
