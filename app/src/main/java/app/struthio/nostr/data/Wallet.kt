@@ -15,9 +15,12 @@ import app.struthio.nostr.core.nwcRequestJson
 import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.net.AppLog
 import app.struthio.nostr.net.Http
+import app.struthio.nostr.net.Subscription
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
@@ -33,7 +36,7 @@ data class Transaction(
 class Wallet(private val core: Core) {
     private companion object {
         const val METHODS = "nwc_methods"
-        const val LISTEN_MS = 15_000L
+        const val LISTEN_MS = 3_000L
 
         /** For connections saved before methods were kept; the next answer from the wallet corrects it. */
         val ASSUMED_METHODS = setOf("pay_invoice", "get_balance", "make_invoice", "list_transactions")
@@ -64,7 +67,7 @@ class Wallet(private val core: Core) {
         val relays = uri.relays.mapNotNull(::normalizeRelay).toSet()
         if (relays.isEmpty()) return
         val methods = core.prefs.getString(METHODS, null)?.split(' ')?.filter { it.isNotEmpty() }?.toSet() ?: ASSUMED_METHODS
-        connection = Connection(uri, relays, methods)
+        connection = Connection(uri, relays, methods).also(::listen)
         connected.value = true
         AppLog.add("wallet restored")
     }
@@ -83,7 +86,8 @@ class Wallet(private val core: Core) {
             throw UserError("This wallet only offers outdated encryption. Update it, or use another wallet.")
         }
         val methods = found.content.split(' ').filter { it.isNotEmpty() }.toSet()
-        connection = Connection(uri, relays, methods)
+        stopListening()
+        connection = Connection(uri, relays, methods).also(::listen)
         if (save) core.secure.put(Core.KEY_NWC, text.trim().toByteArray())
         core.prefs.edit().putString(METHODS, methods.joinToString(" ")).apply()
         problem.value = null
@@ -91,6 +95,7 @@ class Wallet(private val core: Core) {
     }
 
     fun disconnect() {
+        stopListening()
         connection = null
         core.secure.remove(Core.KEY_NWC)
         core.prefs.edit().remove(METHODS).apply()
@@ -102,8 +107,44 @@ class Wallet(private val core: Core) {
 
     fun supports(method: String) = connection?.methods?.contains(method) == true
 
+    /** Requests still waiting for the wallet, by request id. */
+    private val waiting = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+    private var listener: Subscription? = null
+    private var listeningSince = 0L
+    private val listening = MutableStateFlow(false)
+
+    /**
+     * One subscription stays open for every answer addressed to this app, from the moment the
+     * wallet is connected. Wallet answers are never stored, so a request sent before anything is
+     * listening loses its answer; some wallet relays never say when they're listening either.
+     */
+    private fun listen(c: Connection) {
+        if (listener != null) return
+        listeningSince = System.currentTimeMillis()
+        listening.value = false
+        listener = core.pool.subscribe(
+            c.relays,
+            listOf(Filter(authors = listOf(c.uri.wallet), kinds = listOf(Kind.NWC_RESPONSE), tags = mapOf("p" to listOf(c.signer.pubkey)))),
+            onDone = { _, ok -> if (ok) listening.value = true },
+        ) { e, _ ->
+            val id = e.tags.first("e")?.getOrNull(1) ?: return@subscribe
+            val pending = waiting[id] ?: return@subscribe
+            runCatching { pending.complete(JSONObject(Nip44.decrypt(e.content, c.conversation))) }
+        }
+    }
+
+    private fun stopListening() {
+        listener?.let(core.pool::close)
+        listener = null
+        listening.value = false
+    }
+
     private suspend fun call(method: String, params: JSONObject = JSONObject(), timeoutMs: Long = 30_000): JSONObject {
         val c = connection ?: throw UserError("Connect a wallet first.")
+        listen(c)
+        // A just-opened listener gets a moment to reach the relay, unless a relay already confirmed it.
+        val settle = LISTEN_MS - (System.currentTimeMillis() - listeningSince)
+        if (settle > 0) withTimeoutOrNull(settle) { listening.first { it } }
         val content = Nip44.encrypt(nwcRequestJson(method, params), c.conversation)
         val tags: Tags = listOf(
             listOf("p", c.uri.wallet),
@@ -112,30 +153,12 @@ class Wallet(private val core: Core) {
         )
         val request = c.signer.signNow(Draft(c.signer.pubkey, nowSeconds(), Kind.NWC_REQUEST, tags, content))
         val answer = CompletableDeferred<JSONObject>()
-        val listening = CompletableDeferred<Unit>()
-        val sub = core.pool.subscribe(
-            c.relays,
-            listOf(
-                Filter(
-                    authors = listOf(c.uri.wallet),
-                    kinds = listOf(Kind.NWC_RESPONSE),
-                    tags = mapOf("e" to listOf(request.id), "p" to listOf(c.signer.pubkey)),
-                ),
-            ),
-            onDone = { _, ok -> if (ok) listening.complete(Unit) },
-        ) { e, _ ->
-            runCatching { answer.complete(JSONObject(Nip44.decrypt(e.content, c.conversation))) }
-        }
+        waiting[request.id] = answer
         try {
-            // Wallet answers are never stored by relays, so the request only goes out once the
-            // relay is listening for the answer. Before, a quick wallet could reply too early.
-            val ready = withTimeoutOrNull(LISTEN_MS) { listening.await() } != null
             val sent = core.pool.publish(request, c.relays)
             val accepted = sent.filterValues { it.ok }.keys
             AppLog.add(
-                "wallet $method to ${c.relays.joinToString(" ")}: " +
-                    (if (accepted.isEmpty()) "refused ${sent.values.joinToString { it.message }}" else "sent") +
-                    if (ready) "" else " (relay wasn't ready to listen)",
+                "wallet $method: " + if (accepted.isEmpty()) "refused ${sent.values.joinToString { it.message }}" else "sent to ${accepted.joinToString(" ")}",
             )
             if (accepted.isEmpty()) throw UserError("The wallet relay did not take the request.")
             val response = withTimeoutOrNull(timeoutMs) { answer.await() }
@@ -144,7 +167,7 @@ class Wallet(private val core: Core) {
             response.optJSONObject("error")?.let { throw UserError(it.optString("message").ifEmpty { it.optString("code") }) }
             return response.optJSONObject("result") ?: JSONObject()
         } finally {
-            core.pool.close(sub)
+            waiting.remove(request.id)
         }
     }
 
