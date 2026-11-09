@@ -5,6 +5,7 @@ mkdir -p smoke
 APK=app/build/outputs/apk/release/app-x86_64-release.apk
 PKG=app.struthio.nostr
 NOTE=$(cat smoke/note.txt)
+SIZE=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); W=${SIZE%x*}; H=${SIZE#*x}; echo "screen $W x $H"
 adb install -r "$APK"
 adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS
 adb logcat -c
@@ -20,11 +21,11 @@ xml=open('smoke/ui.xml',errors='ignore').read()
 for node in re.findall(r'<node [^>]*>',xml):
     if re.search(r'(text|content-desc)="[^"]*'+re.escape(sys.argv[1]), node):
         a,b,c,d=map(int,re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',node).groups())
-        subprocess.run(['adb','shell','input','tap',str((a+c)//2),str((b+d)//2)]); print('tapped',sys.argv[1]); sys.exit(0)
+        subprocess.run(['adb','shell','input','tap',str((a+c)//2),str((b+d)//2)]); print('tapped',sys.argv[1]); open('smoke/last.txt','w').write(f'{(a+c)//2} {(b+d)//2}'); sys.exit(0)
 sys.exit(1)
 PY
     then sleep 2; return 0; fi
-    adb shell input swipe 540 1700 540 1100 600; sleep 2
+    adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*35/100)) 600; sleep 2
   done
   echo "not found: $1"; grep -o 'text="[^"]\+"' smoke/ui.xml | head -30; return 1
 }
@@ -47,7 +48,7 @@ sleep 12
 adb exec-out screencap -p > smoke/e4-later.png
 # Tap the middle of the player, as a person would if it shows its own play button.
 adb exec-out uiautomator dump /dev/tty > smoke/ui.xml 2>/dev/null
-adb shell input tap 540 800; sleep 10
+adb shell input tap $(cat smoke/last.txt); sleep 10
 adb exec-out screencap -p > smoke/e5-tapped.png
 adb logcat -d > smoke/logcat.txt
 grep -iE "chromium|console|youtube|webview|cr_" smoke/logcat.txt | grep -v "^--" | tail -60
