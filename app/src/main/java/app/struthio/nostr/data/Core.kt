@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.mutableStateMapOf
@@ -155,6 +157,16 @@ class Core(private val context: Context) {
     private val nip05Checked = HashSet<String>()
 
     init {
+        // Tells the relays when the phone loses its network or swaps Wi-Fi for mobile data, so they
+        // reconnect at once instead of each waiting out a timeout on a dead connection.
+        runCatching {
+            context.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) = pool.networkAvailable(network)
+                    override fun onLost(network: Network) = pool.networkLost(network)
+                },
+            )
+        }
         scope.launch { ingestLoop() }
         scope.launch {
             restoreAccount()

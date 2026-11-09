@@ -19,6 +19,7 @@ import app.struthio.nostr.net.Subscription
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -179,9 +180,17 @@ class Wallet(private val core: Core) {
                 // Returns at the first relay that takes it, so waiting on a silent relay doesn't eat into the answer time.
                 val sent = core.pool.publishFirst(request, c.relays)
                 AppLog.add("wallet $method #$attempt: " + if (sent.ok) "taken by a relay" else "refused: ${sent.message}")
-                if (!sent.ok && attempt == 1) throw UserError("The wallet relay did not take the request.")
                 val left = timeoutMs - (System.currentTimeMillis() - started)
                 if (left <= 0) break
+                if (!sent.ok) {
+                    // A lookup that couldn't go out, as when the phone is between Wi-Fi and mobile data,
+                    // waits for a network and goes again. A payment never goes twice on its own.
+                    if (method !in REPEATABLE) throw UserError("The wallet relay did not take the request.")
+                    if (!core.pool.online.value) withTimeoutOrNull(left) { core.pool.online.first { it } }
+                    if (System.currentTimeMillis() - started >= timeoutMs) break
+                    delay(3_000)
+                    continue
+                }
                 val wait = if (method in REPEATABLE) minOf(RESEND_MS, left) else left
                 response = withTimeoutOrNull(wait) { answer.await() }
                 if (response == null && (method !in REPEATABLE || System.currentTimeMillis() - started >= timeoutMs)) break

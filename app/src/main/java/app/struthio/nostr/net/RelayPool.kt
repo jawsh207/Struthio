@@ -14,6 +14,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import java.util.concurrent.ConcurrentHashMap
@@ -58,6 +60,14 @@ class RelayPool(
 
     /** Android cuts a backgrounded app's network within seconds, so nothing is retried until it's back. */
     @Volatile private var leaving = false
+
+    private val onlineState = MutableStateFlow(true)
+
+    /** Whether the phone has a network, as Android reports it. */
+    val online: StateFlow<Boolean> = onlineState
+
+    /** The network Android routes through by default; a different one means Wi-Fi and mobile data swapped. */
+    private var network: Any? = null
 
     val isVisible: Boolean get() = visible.get() > 0
 
@@ -186,6 +196,28 @@ class RelayPool(
         pauseJob?.cancel()
         foreground = true
         relays.values.forEach { it.wake() }
+    }
+
+    /**
+     * Android's default network came up, or changed, from Wi-Fi to mobile data say. Sockets opened on
+     * the old one can hang until they time out, so they're closed and every relay reconnects at once.
+     */
+    fun networkAvailable(id: Any) {
+        val previous = synchronized(this) { network.also { network = id } }
+        val wasOnline = onlineState.value
+        onlineState.value = true
+        if (previous == null && wasOnline) return // the first report, at start-up
+        if (previous == id && wasOnline) return
+        val switched = previous != null && previous != id
+        AppLog.add(if (!wasOnline) "network back" else "network changed")
+        relays.values.forEach { it.renew(dropOld = switched) }
+    }
+
+    /** The default network went away. Only the current one counts: after a swap the old one is lost too. */
+    fun networkLost(id: Any) {
+        synchronized(this) { if (network != id) return }
+        if (onlineState.value) AppLog.add("network lost")
+        onlineState.value = false
     }
 
     /** What a relay refused or what we refused from it, for the account check. */
@@ -376,8 +408,11 @@ class RelayPool(
             scope.launch { socket?.send(text) }
         }
 
+        /** Set while a socket from an old network is being replaced, so its closing isn't a failure. */
+        private var renewing = false
+
         private fun ensureConnected() {
-            if (socket != null || !foreground) return
+            if (socket != null || !foreground || !onlineState.value) return
             val ws = WebSocket(url, onOpen = ::opened, onText = ::message, onClosed = ::closed)
             socket = ws
             ws.connect()
@@ -413,7 +448,10 @@ class RelayPool(
         }
 
         private fun closed(error: Throwable?) {
-            if (!leaving) error?.let { note(url, "connection: ${it.message ?: it.javaClass.simpleName}") }
+            // Without a network every relay fails at once: that says nothing about the relays.
+            val offline = !onlineState.value
+            val replaced = synchronized(lock) { renewing.also { renewing = false } }
+            if (!leaving && !offline && !replaced) error?.let { note(url, "connection: ${it.message ?: it.javaClass.simpleName}") }
             signedIn = false
             val failed: List<Pending>
             val current: List<Subscription>
@@ -436,9 +474,14 @@ class RelayPool(
                 authEventId = null
                 waitingForAuth.clear()
                 current = subs.values.toList()
-                failed = pending.values.toList()
-                pending.clear()
-                if (lasted) failures = 0 else failures++
+                if (offline || replaced) {
+                    // Kept: sent again once connected, if their senders are still waiting.
+                    failed = emptyList()
+                } else {
+                    failed = pending.values.toList()
+                    pending.clear()
+                }
+                if (lasted || offline || replaced) failures = 0 else failures++
                 val wait = minOf(MAX_BACKOFF_S, 2L shl minOf(failures, 8)) * 1000 + (0L until 1000L).random()
                 if (!lasted && failures >= 2) failedUntil = now + wait
                 // A relay turning us away, as members-only relays do, won't change its mind soon. Nor will
@@ -449,8 +492,11 @@ class RelayPool(
                     failedUntil = now + REFUSED_MS
                     limitedUntil = now + REFUSED_MS
                 }
-                retry = current.isNotEmpty() && foreground && !leaving
-                if (retry) {
+                retry = current.isNotEmpty() && foreground && !leaving && !offline
+                if (replaced && foreground && (subs.isNotEmpty() || pending.isNotEmpty())) {
+                    retryJob?.cancel()
+                    ensureConnected()
+                } else if (retry) {
                     val delayMs = maxOf(wait, limitedUntil - now)
                     retryJob?.cancel()
                     retryJob = scope.launch {
@@ -460,7 +506,7 @@ class RelayPool(
                 }
             }
             failed.forEach { it.result.complete(PublishResult(false, error?.message ?: "connection closed")) }
-            current.forEach { it.onDone(url, false) }
+            if (!offline && !replaced) current.forEach { it.onDone(url, false) }
             waiting.forEach { it(null) }
         }
 
@@ -470,6 +516,24 @@ class RelayPool(
                 socket
             }
             ws?.close()
+        }
+
+        /** After a network change: forget past failures, and replace a socket from the old network. */
+        fun renew(dropOld: Boolean) {
+            val old = synchronized(lock) {
+                failures = 0
+                failedUntil = 0
+                retryJob?.cancel()
+                val current = socket
+                if (current != null && dropOld) {
+                    renewing = true
+                    current
+                } else {
+                    if (subs.isNotEmpty() || pending.isNotEmpty()) ensureConnected()
+                    null
+                }
+            }
+            old?.close()
         }
 
         fun wake() {
