@@ -33,7 +33,7 @@ data class Transaction(
 class Wallet(private val core: Core) {
     private companion object {
         const val METHODS = "nwc_methods"
-        const val LISTEN_MS = 8_000L
+        const val LISTEN_MS = 15_000L
 
         /** For connections saved before methods were kept; the next answer from the wallet corrects it. */
         val ASSUMED_METHODS = setOf("pay_invoice", "get_balance", "make_invoice", "list_transactions")
