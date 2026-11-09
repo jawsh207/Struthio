@@ -125,11 +125,25 @@ class Wallet(private val core: Core) {
         listener = core.pool.subscribe(
             c.relays,
             listOf(Filter(authors = listOf(c.uri.wallet), kinds = listOf(Kind.NWC_RESPONSE), tags = mapOf("p" to listOf(c.signer.pubkey)))),
-            onDone = { _, ok -> if (ok) listening.value = true },
-        ) { e, _ ->
-            val id = e.tags.first("e")?.getOrNull(1) ?: return@subscribe
-            val pending = waiting[id] ?: return@subscribe
-            runCatching { pending.complete(JSONObject(Nip44.decrypt(e.content, c.conversation))) }
+            onDone = { url, ok ->
+                if (ok) {
+                    if (!listening.value) AppLog.add("wallet listening on $url")
+                    listening.value = true
+                }
+            },
+        ) { e, url ->
+            val id = e.tags.first("e")?.getOrNull(1)
+            val pending = id?.let(waiting::get)
+            if (pending == null) {
+                AppLog.add("wallet answer from $url for a request no longer waiting")
+                return@subscribe
+            }
+            val opened = runCatching { JSONObject(Nip44.decrypt(e.content, c.conversation)) }
+            opened.onSuccess { pending.complete(it) }.onFailure {
+                // Old wallets answer with NIP-04, whose content carries "?iv=". Struthio doesn't read it.
+                val format = if ("?iv=" in e.content) "the old NIP-04 encryption" else "an unreadable format"
+                AppLog.add("wallet answered from $url in $format")
+            }
         }
     }
 
@@ -184,7 +198,24 @@ class Wallet(private val core: Core) {
         }
     }
 
+    /** What the wallet service says about itself, written to the logs. */
+    private suspend fun checkService(c: Connection) {
+        var info: Event? = null
+        core.pool.query(c.relays, listOf(Filter(authors = listOf(c.uri.wallet), kinds = listOf(Kind.NWC_INFO), limit = 1)), 5_000) { e, _ ->
+            if (info == null || e.createdAt > info!!.createdAt) info = e
+        }
+        val found = info
+        AppLog.add(
+            if (found == null) {
+                "wallet service: no info found on its relays"
+            } else {
+                "wallet service: methods ${found.content.trim()}; encryption ${found.tags.first("encryption")?.getOrNull(1) ?: "not stated (NIP-04 only)"}"
+            },
+        )
+    }
+
     private suspend fun fetch() {
+        connection?.let { checkService(it) }
         if (supports("get_balance")) balance.value = call("get_balance").optLong("balance")
         if (supports("list_transactions")) {
             val list = call("list_transactions", JSONObject().put("limit", 30)).optJSONArray("transactions")
