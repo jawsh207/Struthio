@@ -157,9 +157,6 @@ private fun EmbedPlayer(embed: VideoEmbed) {
         factory = {
             WebView(it).apply {
                 web = this
-                // Video drawn into the web view's own layer, so the card's rounded clipping can't cover it.
-                // Without this the picture could stay black or white while the sound played.
-                setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 setBackgroundColor(android.graphics.Color.BLACK)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true

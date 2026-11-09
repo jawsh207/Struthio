@@ -143,7 +143,9 @@ fun VideoCard(url: String) {
         Unit
     }
     Box(
-        Modifier.padding(top = 10.dp).fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(20.dp)).background(Color.Black),
+        Modifier.padding(top = 10.dp).fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(20.dp)).background(Color.Black)
+            // A tap anywhere on the video belongs to the video, never to the note it's in.
+            .clickable(interactionSource = null, indication = null) { if (!playing && !failed) playing = true },
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -152,6 +154,8 @@ fun VideoCard(url: String) {
                 AndroidView(
                     factory = {
                         VideoView(it).apply {
+                            // Claims the tap that shows the controls, so the note doesn't open its comments too.
+                            isClickable = true
                             setMediaController(MediaController(it).also { controller -> controller.setAnchorView(this) })
                             setOnPreparedListener { loading = false }
                             setOnInfoListener { _, what, _ ->
