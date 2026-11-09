@@ -46,10 +46,9 @@ sleep 8
 adb exec-out screencap -p > smoke/e3-play.png
 sleep 8
 adb exec-out screencap -p > smoke/e4-later.png
-# Tap the middle of the player, as a person would if it shows its own play button.
-adb exec-out uiautomator dump /dev/tty > smoke/ui.xml 2>/dev/null
-adb shell input tap $(cat smoke/last.txt); sleep 10
-adb exec-out screencap -p > smoke/e5-tapped.png
+# Back closes the player and returns to the note.
+adb shell input keyevent 4; sleep 3
+adb exec-out screencap -p > smoke/e5-back.png
 adb logcat -d > smoke/logcat.txt
 PID=$(adb shell pidof $PKG)
 echo "--- app log lines"
