@@ -677,6 +677,60 @@ fun isNip05Address(text: String): Boolean =
 
 private val NIP05_ADDRESS = Regex("[a-z0-9._-]+@[a-z0-9.-]+\\.[a-z]{2,}", RegexOption.IGNORE_CASE)
 
+/** A video on a hosting site, and the player address that plays it inside another page. */
+data class VideoEmbed(val site: String, val player: String)
+
+private val YOUTUBE_HOSTS = setOf("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com")
+private val YOUTUBE_ID = Regex("[A-Za-z0-9_-]{11}")
+private val PEERTUBE_ID = Regex("[A-Za-z0-9-]{22,36}")
+
+/**
+ * The video sites that allow their players inside other apps. YouTube plays from its
+ * privacy-enhanced address. Invidious, Piped and PeerTube play from the instance in the link.
+ */
+fun videoEmbed(url: String): VideoEmbed? = runCatching {
+    if (!isPreviewable(url)) return null
+    val uri = URI(url)
+    val host = uri.host.lowercase()
+    val path = uri.rawPath.orEmpty().trimEnd('/')
+    val segments = path.split('/').filter { it.isNotEmpty() }
+    val query = uri.rawQuery.orEmpty().split('&').mapNotNull { part ->
+        part.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] }
+    }.toMap()
+    fun youtubeId(): String? = when {
+        host == "youtu.be" -> segments.firstOrNull()
+        segments.firstOrNull() == "watch" -> query["v"]
+        segments.size >= 2 && segments[0] in setOf("shorts", "live", "embed", "v") -> segments[1]
+        else -> null
+    }?.takeIf { YOUTUBE_ID.matches(it) }
+    when {
+        host in YOUTUBE_HOSTS -> youtubeId()?.let { VideoEmbed("YouTube", "https://www.youtube-nocookie.com/embed/$it") }
+        host == "vimeo.com" || host == "www.vimeo.com" ->
+            segments.lastOrNull()?.takeIf { id -> id.all(Char::isDigit) }?.let { VideoEmbed("Vimeo", "https://player.vimeo.com/video/$it?dnt=1") }
+        host == "dailymotion.com" || host == "www.dailymotion.com" ->
+            segments.takeIf { it.size == 2 && it[0] == "video" }?.let { VideoEmbed("Dailymotion", "https://www.dailymotion.com/embed/video/${it[1]}") }
+        host == "dai.ly" -> segments.singleOrNull()?.let { VideoEmbed("Dailymotion", "https://www.dailymotion.com/embed/video/$it") }
+        host == "streamable.com" -> segments.singleOrNull()?.let { VideoEmbed("Streamable", "https://streamable.com/e/$it") }
+        host == "odysee.com" && segments.firstOrNull()?.startsWith("@") == true && segments.size == 2 ->
+            VideoEmbed("Odysee", "https://odysee.com/\$/embed/${segments.joinToString("/")}")
+        // PeerTube, on any instance: /w/<id> or /videos/watch/<id>.
+        segments.size == 2 && segments[0] == "w" && PEERTUBE_ID.matches(segments[1]) ->
+            VideoEmbed("PeerTube · " + host.removePrefix("www."), "https://$host/videos/embed/${segments[1]}")
+        segments.size == 3 && segments[0] == "videos" && segments[1] == "watch" && PEERTUBE_ID.matches(segments[2]) ->
+            VideoEmbed("PeerTube · " + host.removePrefix("www."), "https://$host/videos/embed/${segments[2]}")
+        // Invidious and Piped mirror YouTube's addresses, and both serve a player at /embed/<id>.
+        youtubeId() != null && segments.firstOrNull() != "embed" ->
+            VideoEmbed(frontendName(host), "https://$host/embed/${youtubeId()}")
+        else -> null
+    }
+}.getOrNull()
+
+private fun frontendName(host: String): String = when {
+    "piped" in host -> "Piped · $host"
+    "invidious" in host || host in setOf("yewtu.be", "inv.nadeko.net", "inv.tux.pizza") || host.startsWith("inv.") || host.startsWith("iv.") -> "Invidious · $host"
+    else -> host.removePrefix("www.")
+}
+
 fun isPreviewable(url: String): Boolean = runCatching {
     val host = URI(url).host?.lowercase() ?: return false
     url.startsWith("https://") && host.contains('.') && !host.endsWith(".local") && !host.endsWith(".lan") &&

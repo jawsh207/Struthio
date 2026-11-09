@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -135,6 +136,8 @@ fun VideoCard(url: String) {
     var playing by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
+    val active = LocalScreenActive.current
+    LaunchedEffect(active) { if (!active) playing = false }
     val openExternally = {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(url), "video/*")) }
         Unit

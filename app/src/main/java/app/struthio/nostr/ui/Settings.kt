@@ -92,6 +92,7 @@ fun SettingsScreen() {
     var interval by remember { mutableIntStateOf(core.notifyMinutes()) }
     var trustFilter by remember { mutableStateOf(core.trustFilterEnabled()) }
     var linkPreviews by remember { mutableStateOf(core.linkPreviewsEnabled()) }
+    var videoEmbeds by remember { mutableStateOf(core.videoEmbedsEnabled()) }
     var servers by remember { mutableStateOf(core.mediaServers().joinToString("\n")) }
     var revealed by remember { mutableStateOf<String?>(null) }
     var confirmReveal by remember { mutableStateOf(false) }
@@ -174,6 +175,14 @@ fun SettingsScreen() {
                 ToggleRow("Link previews", "Shows a card for links. Each linked site can see your IP address.", linkPreviews) {
                     linkPreviews = it
                     core.setLinkPreviews(it)
+                }
+                ToggleRow(
+                    "Embedded videos",
+                    "Plays videos from YouTube, PeerTube, Invidious, Piped and similar sites inside notes. Nothing loads until you tap play, then that site can see your IP address and what you watch.",
+                    videoEmbeds,
+                ) {
+                    videoEmbeds = it
+                    core.setVideoEmbeds(it)
                 }
             }
             Section("Advanced") {

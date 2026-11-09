@@ -1125,6 +1125,11 @@ class Core(private val context: Context) {
 
     fun setLinkPreviews(on: Boolean) = prefs.edit().putBoolean("link_previews", on).apply()
 
+    /** Off unless chosen, as playing loads the video site's own player and its tracking. */
+    fun videoEmbedsEnabled() = prefs.getBoolean("video_embeds", false)
+
+    fun setVideoEmbeds(on: Boolean) = prefs.edit().putBoolean("video_embeds", on).apply()
+
     /** Open Graph data for a link, cached on disk so that each site is asked once. */
     suspend fun linkInfo(url: String): LinkInfo? = withContext(Dispatchers.IO) {
         if (!isPreviewable(url)) return@withContext null

@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.text.NumberFormat
+import kotlinx.coroutines.launch
 
 @Composable
 fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
@@ -61,9 +62,12 @@ fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
             onConsumed()
         }
     }
-    LaunchedEffect(connected) {
-        // A saved connection that could not be reached at launch gets another try here.
-        scope.act(nav) { if (connected) wallet.refresh() else wallet.restore() }
+    val active = LocalScreenActive.current
+    val problem by wallet.problem.collectAsState()
+    // Every visit asks the wallet again, so a dropped connection recovers by itself.
+    LaunchedEffect(connected, active) {
+        if (!active) return@LaunchedEffect
+        if (connected) wallet.refresh() else wallet.restore()
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -84,6 +88,17 @@ fun WalletScreen(pending: String?, onConsumed: () -> Unit) {
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.SemiBold,
                 )
+                problem?.let {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Couldn't reach your wallet: $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton({ scope.launch { wallet.refresh() } }) { Text("Retry") }
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button({ sheet = "send" }, Modifier.weight(1f)) { Text("Send") }

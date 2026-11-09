@@ -389,6 +389,24 @@ class ProtocolTest {
     }
 
     @Test
+    fun videoSitesAreEmbedded() {
+        fun player(url: String) = videoEmbed(url)?.player
+        assertEquals("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", player("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10"))
+        assertEquals("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", player("https://youtu.be/dQw4w9WgXcQ?si=abc"))
+        assertEquals("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", player("https://youtube.com/shorts/dQw4w9WgXcQ"))
+        assertEquals("https://yewtu.be/embed/dQw4w9WgXcQ", player("https://yewtu.be/watch?v=dQw4w9WgXcQ"))
+        assertEquals("Invidious · yewtu.be", videoEmbed("https://yewtu.be/watch?v=dQw4w9WgXcQ")?.site)
+        assertEquals("https://piped.video/embed/dQw4w9WgXcQ", player("https://piped.video/watch?v=dQw4w9WgXcQ"))
+        assertEquals("https://tilvids.com/videos/embed/9c9de5e8-0a1e-484a-b099-e80766180a6d", player("https://tilvids.com/videos/watch/9c9de5e8-0a1e-484a-b099-e80766180a6d"))
+        assertEquals("https://framatube.org/videos/embed/oFAtkg8rf2TyHi3LrubsCa", player("https://framatube.org/w/oFAtkg8rf2TyHi3LrubsCa"))
+        assertEquals("https://player.vimeo.com/video/76979871?dnt=1", player("https://vimeo.com/76979871"))
+        assertEquals("https://odysee.com/\$/embed/@chan:1/name:2", player("https://odysee.com/@chan:1/name:2"))
+        assertNull(player("https://www.youtube.com/@someone"))
+        assertNull(player("http://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        assertNull(player("https://example.com/article"))
+    }
+
+    @Test
     fun customEmojiAreFound() {
         val tags = listOf(listOf("emoji", "soapbox", "https://a.example/s.png"), listOf("emoji", "bad code", "https://a.example/b.png"), listOf("emoji", "http", "http://a.example/h.png"))
         val emoji = emojiMap(tags)

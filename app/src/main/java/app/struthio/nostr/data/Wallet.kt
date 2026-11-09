@@ -13,6 +13,7 @@ import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.core.nwcRequestJson
 import app.struthio.nostr.core.bolt11Msats
+import app.struthio.nostr.net.AppLog
 import app.struthio.nostr.net.Http
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,13 @@ data class Transaction(
 
 /** NIP-47 with NIP-44 encryption only. Keys and funds stay with the user's wallet service. */
 class Wallet(private val core: Core) {
+    private companion object {
+        const val METHODS = "nwc_methods"
+
+        /** For connections saved before methods were kept; the next answer from the wallet corrects it. */
+        val ASSUMED_METHODS = setOf("pay_invoice", "get_balance", "make_invoice", "list_transactions")
+    }
+
     private class Connection(val uri: NwcUri, val relays: Set<String>, val methods: Set<String>) {
         val signer = LocalSigner(uri.secret)
         val conversation = Nip44.conversationKey(uri.secret, uri.wallet)
@@ -40,9 +48,23 @@ class Wallet(private val core: Core) {
     val balance = MutableStateFlow<Long?>(null)
     val transactions = MutableStateFlow<List<Transaction>>(emptyList())
 
+    /** Why the wallet couldn't be reached last time, or null when it answered. */
+    val problem = MutableStateFlow<String?>(null)
+
+    /**
+     * A saved wallet stays connected without asking the network. It used to depend on the wallet
+     * answering at launch, so any unreachable moment looked like the wallet had been removed.
+     */
     suspend fun restore() {
+        if (connection != null) return
         val text = runCatching { core.secure.get(Core.KEY_NWC) }.getOrNull()?.let(::String) ?: return
-        runCatching { connect(text, save = false) }
+        val uri = NwcUri.parse(text) ?: return
+        val relays = uri.relays.mapNotNull(::normalizeRelay).toSet()
+        if (relays.isEmpty()) return
+        val methods = core.prefs.getString(METHODS, null)?.split(' ')?.filter { it.isNotEmpty() }?.toSet() ?: ASSUMED_METHODS
+        connection = Connection(uri, relays, methods)
+        connected.value = true
+        AppLog.add("wallet restored")
     }
 
     suspend fun connect(text: String, save: Boolean = true) {
@@ -58,14 +80,19 @@ class Wallet(private val core: Core) {
         if ("nip44_v2" !in encryption) {
             throw UserError("This wallet only offers outdated encryption. Update it, or use another wallet.")
         }
-        connection = Connection(uri, relays, found.content.split(' ').filter { it.isNotEmpty() }.toSet())
+        val methods = found.content.split(' ').filter { it.isNotEmpty() }.toSet()
+        connection = Connection(uri, relays, methods)
         if (save) core.secure.put(Core.KEY_NWC, text.trim().toByteArray())
+        core.prefs.edit().putString(METHODS, methods.joinToString(" ")).apply()
+        problem.value = null
         connected.value = true
     }
 
     fun disconnect() {
         connection = null
         core.secure.remove(Core.KEY_NWC)
+        core.prefs.edit().remove(METHODS).apply()
+        problem.value = null
         connected.value = false
         balance.value = null
         transactions.value = emptyList()
@@ -109,6 +136,16 @@ class Wallet(private val core: Core) {
 
     suspend fun refresh() {
         if (connection == null) return
+        try {
+            fetch()
+            problem.value = null
+        } catch (e: UserError) {
+            AppLog.add("wallet refresh failed: ${e.message}")
+            problem.value = e.message
+        }
+    }
+
+    private suspend fun fetch() {
         if (supports("get_balance")) balance.value = call("get_balance").optLong("balance")
         if (supports("list_transactions")) {
             val list = call("list_transactions", JSONObject().put("limit", 30)).optJSONArray("transactions")

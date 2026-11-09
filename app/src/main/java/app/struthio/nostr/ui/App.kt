@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
@@ -72,6 +73,9 @@ sealed interface Screen {
     data object EditProfile : Screen
     data object Bookmarks : Screen
 }
+
+/** Whether the screen this sits in is the one being looked at. Hidden screens stop playing media. */
+val LocalScreenActive = compositionLocalOf { true }
 
 class Nav(private val scope: CoroutineScope, private val snackbar: SnackbarHostState) {
     val stack = mutableStateListOf<Screen>()
@@ -186,15 +190,18 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
             // Every screen below the top one stays alive, so going back finds feeds where they were left.
             Box(Modifier.padding(padding)) {
                 HorizontalPager(pager, Modifier.fillMaxSize(), key = { it }, userScrollEnabled = top == null) { page ->
+                  CompositionLocalProvider(LocalScreenActive provides (top == null && pager.settledPage == page)) {
                     when (page) {
                         0 -> HomeScreen()
                         1 -> MessagesScreen()
                         2 -> WalletScreen(pendingWallet) { pendingWallet = null }
                         else -> AlertsScreen()
                     }
+                  }
                 }
                 nav.stack.forEachIndexed { index, screen ->
                     key(index, screen) {
+                      CompositionLocalProvider(LocalScreenActive provides (index == nav.stack.lastIndex)) {
                         Surface(
                             Modifier.fillMaxSize().graphicsLayer { alpha = if (index == nav.stack.lastIndex) 1f else 0f },
                             color = MaterialTheme.colorScheme.background,
@@ -216,6 +223,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
                                 Screen.Bookmarks -> BookmarksScreen()
                             }
                         }
+                      }
                     }
                 }
             }

@@ -81,6 +81,7 @@ import app.struthio.nostr.core.parseContent
 import app.struthio.nostr.core.parsePoll
 import app.struthio.nostr.core.repostedEvent
 import app.struthio.nostr.core.values
+import app.struthio.nostr.core.videoEmbed
 import app.struthio.nostr.data.Stats
 
 /** A list entry: a note, or a boost wrapped around one. */
@@ -308,7 +309,13 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
     viewing?.let { start -> ImageViewer(body.images.map { it.url }, start) { viewing = null } }
     if (!inQuote) {
         body.videos.take(2).forEach { VideoCard(it) }
-        if (body.images.isEmpty() && body.videos.isEmpty() && core.linkPreviewsEnabled()) body.preview?.let { LinkPreview(it) }
+        if (body.images.isEmpty() && body.videos.isEmpty()) body.preview?.let { link ->
+            val embed = if (core.videoEmbedsEnabled()) videoEmbed(link) else null
+            when {
+                embed != null -> EmbedCard(link, embed)
+                core.linkPreviewsEnabled() -> LinkPreview(link)
+            }
+        }
         body.quotes.take(2).forEach { QuoteCard(it) }
     }
 }
