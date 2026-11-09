@@ -1053,6 +1053,8 @@ class Core(private val context: Context) {
         author?.let { relaysOf(it)?.write?.let(relays::addAll) }
         relays += readRelays()
         relays += DEFAULT_RELAYS
+        // Lookup relays keep only profiles and lists; purplepag.es refuses a search without a kind.
+        relays -= lookupRelays().toSet()
         var found: Event? = null
         pool.query(relays.take(8).toSet(), listOf(Filter(ids = listOf(id)))) { e, relay ->
             found = e

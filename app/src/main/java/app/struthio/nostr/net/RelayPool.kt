@@ -441,9 +441,11 @@ class RelayPool(
                 if (lasted) failures = 0 else failures++
                 val wait = minOf(MAX_BACKOFF_S, 2L shl minOf(failures, 8)) * 1000 + (0L until 1000L).random()
                 if (!lasted && failures >= 2) failedUntil = now + wait
-                // A relay turning us away, as members-only relays do, won't change its mind soon.
+                // A relay turning us away, as members-only relays do, won't change its mind soon. Nor will
+                // an address that answers as a web page or redirects (200, 301): it isn't a relay at all.
                 val message = error?.message.orEmpty()
-                if (message.startsWith("handshake refused: HTTP/1.1 4") && " 429" !in message) {
+                val notARelay = message.startsWith("handshake refused: HTTP/1.1 2") || message.startsWith("handshake refused: HTTP/1.1 3")
+                if (notARelay || (message.startsWith("handshake refused: HTTP/1.1 4") && " 429" !in message)) {
                     failedUntil = now + REFUSED_MS
                     limitedUntil = now + REFUSED_MS
                 }
