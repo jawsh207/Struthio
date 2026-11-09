@@ -600,18 +600,32 @@ class Core(private val context: Context) {
      */
     suspend fun publish(draft: Draft, extraRelays: Set<String> = emptySet()): Event {
         val active = signer.value ?: throw UserError("Sign in first.")
-        val event = active.sign(draft)
+        // Trying again after a failure sends the very same signed event. A relay that got the first
+        // try after all keeps one copy, as events are matched by id; a newly signed one would be a duplicate.
+        val key = "${draft.pubkey}|${draft.kind}|${draft.tags}|${draft.content}"
+        val earlier = unconfirmed[key]?.takeIf { nowSeconds() - it.createdAt < RETRY_SAME_EVENT_S }
+        val event = earlier ?: active.sign(draft)
         val own = (writeRelays() + extraRelays).take(MAX_PUBLISH_RELAYS).toSet()
         withContext(NonCancellable) {
             val result = pool.publishFirst(event, own)
-            AppLog.add("sent kind ${event.kind} to ${own.size} relays: " + if (result.ok) "accepted" else "failed ${result.message}")
-            if (!result.ok) throw UserError(result.message.takeIf { it.isNotBlank() } ?: "No relay accepted this.")
+            AppLog.add(
+                "sent kind ${event.kind} to ${own.size} relays" + (if (earlier != null) " (again, same event)" else "") + ": " +
+                    if (result.ok) "accepted" else "failed ${result.message}",
+            )
+            if (!result.ok) {
+                unconfirmed[key] = event
+                throw UserError(result.message.takeIf { it.isNotBlank() } ?: "No relay accepted this.")
+            }
+            unconfirmed.remove(key)
             ingest(event, own.first())
         }
         val tagged = draft.tags.values("p").distinct().filter(Hex::isKey).take(20)
         if (tagged.isNotEmpty()) scope.launch { runCatching { reachTagged(event, tagged, own) } }
         return event
     }
+
+    /** Signed events no relay confirmed, by what they say, so a retry reuses them. */
+    private val unconfirmed = ConcurrentHashMap<String, Event>()
 
     private suspend fun reachTagged(event: Event, tagged: List<String>, sent: Set<String>) {
         ensureRelayLists(tagged)
@@ -1488,6 +1502,9 @@ class Core(private val context: Context) {
         /** One request stays well under the frame limits relays apply. */
         const val MAX_AUTHORS = 400
         private const val MAX_PUBLISH_RELAYS = 12
+
+        /** How long a failed event is reused for retries; after that a retry is a new post. */
+        private const val RETRY_SAME_EVENT_S = 60 * 60L
 
         val DEFAULT_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
         val DEFAULT_LOOKUP_RELAYS = listOf("wss://purplepag.es", "wss://indexer.coracle.social")
