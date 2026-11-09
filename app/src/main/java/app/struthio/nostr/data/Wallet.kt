@@ -130,7 +130,8 @@ class Wallet(private val core: Core) {
             c.relays,
             listOf(Filter(authors = listOf(c.uri.wallet), kinds = listOf(Kind.NWC_RESPONSE), tags = mapOf("p" to listOf(c.signer.pubkey)))),
             onDone = { url, ok ->
-                if (ok) listening.value = true else AppLog.add("wallet not listening on $url")
+                // A relay that refuses the listener is already logged by the pool as "closed: …".
+                if (ok) listening.value = true
             },
         ) { e, url ->
             val id = e.tags.first("e")?.getOrNull(1)
