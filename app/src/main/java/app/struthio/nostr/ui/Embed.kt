@@ -124,6 +124,17 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                         return false
                     }
 
+                    override fun onPageFinished(view: WebView, url: String) {
+                        // What the player page says, so a refusal like "Error 153" shows up in the logs.
+                        view.postDelayed({
+                            view.evaluateJavascript("(document.body&&document.body.innerText||'').slice(0,200)") { text ->
+                                val shown = text.trim('"').replace("\\n", " ").trim()
+                                android.util.Log.i("StruthioEmbed", "page text: $shown")
+                                if (shown.isNotEmpty()) AppLog.add("video ${embed.site}: shows \"${shown.take(120)}\"")
+                            }
+                        }, 6_000)
+                    }
+
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                         AppLog.add("video ${embed.site}: ${request.url.host} failed: ${error.description}")
                     }
@@ -141,13 +152,9 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                         return true
                     }
                 }
-                // An iframe from a fixed origin, because some sites refuse to play without a referrer.
-                val src = embed.player.replace("\"", "%22")
-                val page = "<!doctype html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\">" +
-                    "<style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%}</style></head>" +
-                    "<body><iframe src=\"$src\" allow=\"autoplay; encrypted-media; picture-in-picture\" " +
-                    "referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></body></html>"
-                loadDataWithBaseURL(ORIGIN, page, "text/html", "utf-8", null)
+                // The player page itself, with the app named as referrer, as YouTube asks of apps.
+                // Players refuse to start without one ("Error 153").
+                loadUrl(embed.player, mapOf("Referer" to ORIGIN))
             }
         },
         onRelease = { view ->
