@@ -396,6 +396,8 @@ class ProtocolTest {
         assertEquals("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", player("https://youtube.com/shorts/dQw4w9WgXcQ"))
         assertEquals("https://yewtu.be/embed/dQw4w9WgXcQ", player("https://yewtu.be/watch?v=dQw4w9WgXcQ"))
         assertEquals("Invidious · yewtu.be", videoEmbed("https://yewtu.be/watch?v=dQw4w9WgXcQ")?.site)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", videoEmbed("https://youtu.be/dQw4w9WgXcQ")?.thumbnail)
+        assertEquals(null, videoEmbed("https://piped.video/watch?v=dQw4w9WgXcQ")?.thumbnail)
         assertEquals("https://piped.video/embed/dQw4w9WgXcQ", player("https://piped.video/watch?v=dQw4w9WgXcQ"))
         assertEquals("https://tilvids.com/videos/embed/9c9de5e8-0a1e-484a-b099-e80766180a6d", player("https://tilvids.com/videos/watch/9c9de5e8-0a1e-484a-b099-e80766180a6d"))
         assertEquals("https://framatube.org/videos/embed/oFAtkg8rf2TyHi3LrubsCa", player("https://framatube.org/w/oFAtkg8rf2TyHi3LrubsCa"))

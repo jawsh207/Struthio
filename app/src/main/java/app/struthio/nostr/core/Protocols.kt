@@ -678,7 +678,8 @@ fun isNip05Address(text: String): Boolean =
 private val NIP05_ADDRESS = Regex("[a-z0-9._-]+@[a-z0-9.-]+\\.[a-z]{2,}", RegexOption.IGNORE_CASE)
 
 /** A video on a hosting site, and the player address that plays it inside another page. */
-data class VideoEmbed(val site: String, val player: String)
+/** [thumbnail] is a still image known without asking the site, shown before play when link previews are on. */
+data class VideoEmbed(val site: String, val player: String, val thumbnail: String? = null)
 
 private val YOUTUBE_HOSTS = setOf("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com")
 private val YOUTUBE_ID = Regex("[A-Za-z0-9_-]{11}")
@@ -704,7 +705,9 @@ fun videoEmbed(url: String): VideoEmbed? = runCatching {
         else -> null
     }?.takeIf { YOUTUBE_ID.matches(it) }
     when {
-        host in YOUTUBE_HOSTS -> youtubeId()?.let { VideoEmbed("YouTube", "https://www.youtube-nocookie.com/embed/$it") }
+        host in YOUTUBE_HOSTS -> youtubeId()?.let {
+            VideoEmbed("YouTube", "https://www.youtube-nocookie.com/embed/$it", "https://i.ytimg.com/vi/$it/hqdefault.jpg")
+        }
         host == "vimeo.com" || host == "www.vimeo.com" ->
             segments.lastOrNull()?.takeIf { id -> id.all(Char::isDigit) }?.let { VideoEmbed("Vimeo", "https://player.vimeo.com/video/$it?dnt=1") }
         host == "dailymotion.com" || host == "www.dailymotion.com" ->
@@ -720,7 +723,12 @@ fun videoEmbed(url: String): VideoEmbed? = runCatching {
             VideoEmbed("PeerTube · " + host.removePrefix("www."), "https://$host/videos/embed/${segments[2]}")
         // Invidious and Piped mirror YouTube's addresses, and both serve a player at /embed/<id>.
         youtubeId() != null && segments.firstOrNull() != "embed" ->
-            VideoEmbed(frontendName(host), "https://$host/embed/${youtubeId()}")
+            VideoEmbed(
+                frontendName(host),
+                "https://$host/embed/${youtubeId()}",
+                // Invidious serves thumbnails at YouTube's own path; Piped doesn't.
+                if ("piped" in host) null else "https://$host/vi/${youtubeId()}/hqdefault.jpg",
+            )
         else -> null
     }
 }.getOrNull()

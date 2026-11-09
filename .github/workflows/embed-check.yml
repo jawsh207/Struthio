@@ -3,6 +3,10 @@ name: Embed check
 # Run by hand. Read-only: opens a public note with a YouTube link and records the player. Nothing is published.
 on:
   workflow_dispatch:
+    inputs:
+      pattern:
+        description: Regex for the video link to look for (default YouTube)
+        required: false
 
 jobs:
   embed:
@@ -16,7 +20,9 @@ jobs:
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v5
       - run: pip install --quiet websockets pillow
-      - run: mkdir -p smoke && python3 scripts/find-video-note.py > smoke/note.txt && cat smoke/note.txt
+      - env:
+          VIDEO_PATTERN: ${{ inputs.pattern }}
+        run: mkdir -p smoke && python3 scripts/find-video-note.py > smoke/note.txt && cat smoke/note.txt
       - run: ./gradlew assembleRelease
       - name: Enable KVM
         run: |

@@ -41,10 +41,10 @@ adb shell input keyevent 4; sleep 2
 adb shell am start -a android.intent.action.VIEW -d "nostr:$NOTE" >/dev/null
 sleep 12
 adb exec-out screencap -p > smoke/e2-note.png
-find_tap "Play on YouTube" 4
-sleep 6
+find_tap "Play on" 4
+sleep 8
 adb exec-out screencap -p > smoke/e3-play.png
-sleep 12
+sleep 8
 adb exec-out screencap -p > smoke/e4-later.png
 # Tap the middle of the player, as a person would if it shows its own play button.
 adb exec-out uiautomator dump /dev/tty > smoke/ui.xml 2>/dev/null

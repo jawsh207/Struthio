@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only: finds a recent public note with a YouTube link and prints it as a note1 address."""
-import asyncio, json, re, sys
+"""Read-only: finds a recent public note with a video link and prints it as a note1 address."""
+import asyncio, json, os, re, sys
 import websockets
 
+PATTERN = os.environ.get("VIDEO_PATTERN") or r"(youtube\.com/watch\?v=|youtu\.be/)[\w-]{11}"
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
 
@@ -37,12 +38,12 @@ async def scan(host):
     found = []
     try:
         async with websockets.connect(f"wss://{host}", open_timeout=8, max_size=2**23) as ws:
-            await ws.send(json.dumps(["REQ", "v", {"kinds": [1], "limit": 500}]))
+            await ws.send(json.dumps(["REQ", "v", {"kinds": [1], "limit": 2000}]))
             while True:
                 msg = json.loads(await asyncio.wait_for(ws.recv(), 10))
                 if msg[0] == "EOSE":
                     break
-                if msg[0] == "EVENT" and re.search(r"(youtube\.com/watch\?v=|youtu\.be/)[\w-]{11}", msg[2]["content"]):
+                if msg[0] == "EVENT" and re.search(PATTERN, msg[2]["content"]):
                     found.append(msg[2])
     except Exception as e:
         print("scan", host, e, file=sys.stderr)
@@ -50,15 +51,15 @@ async def scan(host):
 
 
 async def main():
-    for host in ["relay.primal.net", "nos.lol", "relay.damus.io"]:
+    for host in ["relay.primal.net", "nos.lol", "relay.damus.io", "relay.ditto.pub"]:
         notes = await scan(host)
         notes = [n for n in notes if len(n["content"]) < 300]
         if notes:
             e = min(notes, key=lambda n: len(n["content"]))
-            print(re.search(r"\S*(youtube\.com/watch\?v=|youtu\.be/)\S*", e["content"]).group(0), file=sys.stderr)
+            print(re.search(r"\S*" + PATTERN + r"\S*", e["content"]).group(0), file=sys.stderr)
             print(bech32("note", bytes.fromhex(e["id"])))
             return
-    sys.exit("no note with a YouTube link found")
+    sys.exit("no note with a matching video link found")
 
 
 asyncio.run(main())

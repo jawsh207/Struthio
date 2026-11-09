@@ -63,7 +63,8 @@ fun EmbedCard(url: String, embed: VideoEmbed) {
     var playing by remember(url) { mutableStateOf(false) }
     // Leaving the screen ends playback, as hidden screens stay alive now.
     LaunchedEffect(active) { if (!active) playing = false }
-    val info by produceState<LinkInfo?>(null, url) { if (core.linkPreviewsEnabled()) value = core.linkInfo(url) }
+    val previews = remember { core.linkPreviewsEnabled() }
+    val info by produceState<LinkInfo?>(null, url) { if (previews) value = core.linkInfo(url) }
     val open = {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
         Unit
@@ -73,7 +74,8 @@ fun EmbedCard(url: String, embed: VideoEmbed) {
             if (playing) {
                 EmbedPlayer(embed)
             } else {
-                info?.image?.let { NetImage(it, 380.dp, Modifier.fillMaxSize()) }
+                // The site's own still when it's known from the address, otherwise the link preview's image.
+                (if (previews) embed.thumbnail ?: info?.image else null)?.let { NetImage(it, 380.dp, Modifier.fillMaxSize()) }
                 Box(
                     Modifier.fillMaxSize().clickable { playing = true },
                     contentAlignment = Alignment.Center,
@@ -155,7 +157,9 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                 }
                 // The player page itself, with the app named as referrer, as YouTube asks of apps.
                 // Players refuse to start without one ("Error 153").
-                loadUrl(embed.player, mapOf("Referer" to ORIGIN))
+                // Starts at once, so one tap on Struthio's play button is enough.
+                val start = embed.player + (if ('?' in embed.player) "&" else "?") + "autoplay=1"
+                loadUrl(start, mapOf("Referer" to ORIGIN))
             }
         },
         onRelease = { view ->
