@@ -37,6 +37,10 @@ class Wallet(private val core: Core) {
     private companion object {
         const val METHODS = "nwc_methods"
         const val LISTEN_MS = 3_000L
+        const val RESEND_MS = 10_000L
+
+        /** Asking these twice does no harm, so an unanswered request is sent again. */
+        val REPEATABLE = setOf("get_balance", "list_transactions", "get_info", "get_budget", "lookup_invoice")
 
         /** For connections saved before methods were kept; the next answer from the wallet corrects it. */
         val ASSUMED_METHODS = setOf("pay_invoice", "get_balance", "make_invoice", "list_transactions")
@@ -127,8 +131,10 @@ class Wallet(private val core: Core) {
             listOf(Filter(authors = listOf(c.uri.wallet), kinds = listOf(Kind.NWC_RESPONSE), tags = mapOf("p" to listOf(c.signer.pubkey)))),
             onDone = { url, ok ->
                 if (ok) {
-                    if (!listening.value) AppLog.add("wallet listening on $url")
+                    AppLog.add("wallet listening on $url")
                     listening.value = true
+                } else {
+                    AppLog.add("wallet not listening on $url")
                 }
             },
         ) { e, url ->
@@ -159,29 +165,40 @@ class Wallet(private val core: Core) {
         // A just-opened listener gets a moment to reach the relay, unless a relay already confirmed it.
         val settle = LISTEN_MS - (System.currentTimeMillis() - listeningSince)
         if (settle > 0) withTimeoutOrNull(settle) { listening.first { it } }
-        val content = Nip44.encrypt(nwcRequestJson(method, params), c.conversation)
-        val tags: Tags = listOf(
-            listOf("p", c.uri.wallet),
-            listOf("encryption", "nip44_v2"),
-            listOf("expiration", (nowSeconds() + 60).toString()),
-        )
-        val request = c.signer.signNow(Draft(c.signer.pubkey, nowSeconds(), Kind.NWC_REQUEST, tags, content))
         val answer = CompletableDeferred<JSONObject>()
-        waiting[request.id] = answer
+        val ids = ArrayList<String>()
+        val started = System.currentTimeMillis()
         try {
-            val sent = core.pool.publish(request, c.relays)
-            val accepted = sent.filterValues { it.ok }.keys
-            AppLog.add(
-                "wallet $method: " + if (accepted.isEmpty()) "refused ${sent.values.joinToString { it.message }}" else "sent to ${accepted.joinToString(" ")}",
-            )
-            if (accepted.isEmpty()) throw UserError("The wallet relay did not take the request.")
-            val response = withTimeoutOrNull(timeoutMs) { answer.await() }
-            AppLog.add("wallet $method: " + if (response == null) "no answer in ${timeoutMs / 1000}s" else "answered")
+            var attempt = 0
+            var response: JSONObject? = null
+            while (response == null) {
+                attempt++
+                val content = Nip44.encrypt(nwcRequestJson(method, params), c.conversation)
+                val tags: Tags = listOf(
+                    listOf("p", c.uri.wallet),
+                    listOf("encryption", "nip44_v2"),
+                    listOf("expiration", (nowSeconds() + 60).toString()),
+                )
+                val request = c.signer.signNow(Draft(c.signer.pubkey, nowSeconds(), Kind.NWC_REQUEST, tags, content))
+                waiting[request.id] = answer
+                ids += request.id
+                // Returns at the first relay that takes it, so waiting on a silent relay doesn't eat into the answer time.
+                val sent = core.pool.publishFirst(request, c.relays)
+                AppLog.add("wallet $method #$attempt: " + if (sent.ok) "taken by a relay" else "refused: ${sent.message}")
+                if (!sent.ok && attempt == 1) throw UserError("The wallet relay did not take the request.")
+                val left = timeoutMs - (System.currentTimeMillis() - started)
+                if (left <= 0) break
+                val wait = if (method in REPEATABLE) minOf(RESEND_MS, left) else left
+                response = withTimeoutOrNull(wait) { answer.await() }
+                if (response == null && (method !in REPEATABLE || System.currentTimeMillis() - started >= timeoutMs)) break
+            }
+            val elapsed = (System.currentTimeMillis() - started) / 1000
+            AppLog.add("wallet $method: " + if (response == null) "no answer in ${elapsed}s" else "answered after ${elapsed}s")
             if (response == null) throw UserError("The wallet did not respond.")
             response.optJSONObject("error")?.let { throw UserError(it.optString("message").ifEmpty { it.optString("code") }) }
             return response.optJSONObject("result") ?: JSONObject()
         } finally {
-            waiting.remove(request.id)
+            ids.forEach(waiting::remove)
         }
     }
 
