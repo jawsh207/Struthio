@@ -2,7 +2,6 @@ package app.struthio.nostr.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -29,12 +27,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +38,30 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Bookmarks
+import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.SmartDisplay
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.data.Core
@@ -52,7 +71,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import app.struthio.nostr.data.Notifier
 import app.struthio.nostr.data.SignerBridge
-import org.json.JSONObject
 
 @Composable
 internal fun Section(title: String, content: @Composable () -> Unit) {
@@ -68,15 +86,52 @@ internal fun Section(title: String, content: @Composable () -> Unit) {
     }
 }
 
+/** A titled group of rows, joined into one card the way the other screens group lists. */
 @Composable
-private fun ToggleRow(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked, onChange)
+private fun Group(title: String, vararg rows: (@Composable (Shape) -> Unit)?) {
+    val shown = rows.filterNotNull()
+    if (shown.isEmpty()) return
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        shown.forEachIndexed { index, row -> row(segmentShape(index, shown.size)) }
     }
+}
+
+@Composable
+private fun SettingRow(
+    shape: Shape,
+    icon: ImageVector,
+    title: String,
+    summary: String? = null,
+    color: Color = Color.Unspecified,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: (() -> Unit)?,
+) {
+    CardRow(
+        shape,
+        onClick,
+        headlineContent = { Text(title, color = color) },
+        supportingContent = summary?.let { { Text(it) } },
+        leadingContent = { Icon(icon, null, tint = if (color == Color.Unspecified) MaterialTheme.colorScheme.onSurfaceVariant else color) },
+        trailingContent = trailing,
+    )
+}
+
+@Composable
+private fun SwitchRow(shape: Shape, icon: ImageVector, title: String, summary: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    SettingRow(shape, icon, title, summary, trailing = { Switch(checked, onChange) }) { onChange(!checked) }
+}
+
+private fun intervalLabel(minutes: Int) = when {
+    minutes == 0 -> "Off"
+    minutes < 60 -> "Every $minutes minutes"
+    minutes == 60 -> "Every hour"
+    else -> "Every ${minutes / 60} hours"
 }
 
 @Composable
@@ -86,141 +141,131 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val me = core.me ?: return
+    val hasKey = remember { core.secure.get(Core.KEY_SECRET) != null }
     var copying by remember { mutableStateOf(false) }
     var sealing by remember { mutableStateOf(false) }
-    if (sealing) KeyBackupDialog { sealing = false }
     var interval by remember { mutableIntStateOf(core.notifyMinutes()) }
+    var pickingInterval by remember { mutableStateOf(false) }
     var trustFilter by remember { mutableStateOf(core.trustFilterEnabled()) }
     var linkPreviews by remember { mutableStateOf(core.linkPreviewsEnabled()) }
     var videoEmbeds by remember { mutableStateOf(core.videoEmbedsEnabled()) }
-    var servers by remember { mutableStateOf(core.mediaServers().joinToString("\n")) }
+    var editingServers by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf<String?>(null) }
     var confirmReveal by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
+    val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() }
 
-    Column(Modifier.fillMaxSize().imePadding()) {
+    Column(Modifier.fillMaxSize()) {
         BackBar("Settings")
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter).navigationBarsPadding(),
         ) {
-            Section("Account") {
-                val npub = Nip19.npub(me)
-                Text(npub, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton({
-                        context.copy(npub)
+            Spacer(Modifier.height(8.dp))
+            CardRow(
+                RoundedCornerShape(24.dp),
+                { nav.push(Screen.Profile(me)) },
+                headlineContent = { Text(core.displayName(me), style = MaterialTheme.typography.titleMedium) },
+                supportingContent = { Text(Nip19.npub(me), maxLines = 1, overflow = TextOverflow.MiddleEllipsis) },
+                leadingContent = { Avatar(me, 48.dp) },
+                trailingContent = {
+                    IconButton({
+                        context.copy(Nip19.npub(me))
                         nav.say("Public key copied")
-                    }) { Text("Copy npub") }
-                    OutlinedButton({ nav.push(Screen.Profile(me)) }) { Text("View profile") }
-                }
-                OutlinedButton({ nav.push(Screen.Bookmarks) }) { Text("Bookmarks") }
-                if (core.secure.get(Core.KEY_SECRET) != null) {
-                    OutlinedButton({ sealing = true }) { Text("Encrypted key backup") }
-                    if (revealed == null) {
-                        OutlinedButton({ confirmReveal = true }) { Text("Back up private key") }
-                    } else {
-                        SelectionContainer { Text(revealed!!, style = MaterialTheme.typography.bodySmall) }
-                        FilledTonalButton({
-                            context.copy(revealed!!)
-                            nav.say("Private key copied. Clear your clipboard after saving it.")
-                        }) { Text("Copy private key") }
-                    }
-                }
-                TextButton({ confirmSignOut = true }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
-            }
-            Section("Relays") {
-                Text("Choose where your notes go and where people can reach you.", style = MaterialTheme.typography.bodyMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton({ nav.push(Screen.Relays) }) { Text("Manage relays") }
-                    OutlinedButton({ nav.push(Screen.AccountCheck) }) { Text("Account check") }
-                }
-                Text("Help other apps and people find you by copying your lists to popular relays.", style = MaterialTheme.typography.bodyMedium)
-                OutlinedButton(
-                    onClick = {
-                        copying = true
-                        scope.act(nav) {
-                            try {
-                                nav.say(core.copyListsToPopularRelays())
-                            } finally {
-                                copying = false
+                    }) { Icon(Icons.Rounded.ContentCopy, "Copy npub") }
+                },
+            )
+            Group(
+                "Account",
+                { SettingRow(it, Icons.Rounded.Bookmarks, "Bookmarks") { nav.push(Screen.Bookmarks) } },
+                if (hasKey) {
+                    { SettingRow(it, Icons.Rounded.Lock, "Encrypted key backup", "Export your key protected by a password") { sealing = true } }
+                } else {
+                    null
+                },
+                if (hasKey) {
+                    { SettingRow(it, Icons.Rounded.Key, "Show private key", "For backing up by hand") { confirmReveal = true } }
+                } else {
+                    null
+                },
+            )
+            Group(
+                "Relays",
+                { SettingRow(it, Icons.Rounded.Hub, "Manage relays", "General, messaging, search and profile lookup") { nav.push(Screen.Relays) } },
+                { SettingRow(it, Icons.Rounded.FactCheck, "Account check", "See which relays have your profile and lists") { nav.push(Screen.AccountCheck) } },
+                {
+                    SettingRow(
+                        it,
+                        Icons.Rounded.CloudUpload,
+                        if (copying) "Copying…" else "Copy lists to popular relays",
+                        "Helps other apps and people find you",
+                    ) {
+                        if (!copying) {
+                            copying = true
+                            scope.act(nav) {
+                                try {
+                                    nav.say(core.copyListsToPopularRelays())
+                                } finally {
+                                    copying = false
+                                }
                             }
                         }
-                    },
-                    enabled = !copying,
-                ) { Text(if (copying) "Copying…" else "Copy my lists to popular relays") }
-            }
-            Section("Notifications") {
-                Text("How often Struthio checks for new activity. Android may delay checks when the phone is idle.", style = MaterialTheme.typography.bodyMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Notifier.INTERVALS.forEach { minutes ->
-                        val label = when {
-                            minutes == 0 -> "Off"
-                            minutes < 60 -> "$minutes min"
-                            minutes == 60 -> "1 hour"
-                            else -> "${minutes / 60} hours"
-                        }
-                        FilterChip(interval == minutes, {
-                            interval = minutes
-                            core.setNotifyMinutes(minutes)
-                        }, { Text(label) })
                     }
-                }
-            }
-            Section("Feeds") {
-                ToggleRow("Trusted network", "Global and Trending show only people you follow and the people they follow.", trustFilter) {
-                    trustFilter = it
-                    core.setTrustFilter(it)
-                }
-                ToggleRow("Link previews", "Shows a card for links. Each linked site can see your IP address.", linkPreviews) {
-                    linkPreviews = it
-                    core.setLinkPreviews(it)
-                }
-                ToggleRow(
-                    "Embedded videos",
-                    "Plays videos from YouTube, PeerTube, Invidious, Piped and similar sites inside notes. Nothing loads until you tap play, then that site can see your IP address and what you watch.",
-                    videoEmbeds,
-                ) {
-                    videoEmbeds = it
-                    core.setVideoEmbeds(it)
-                }
-            }
-            Section("Advanced") {
-                Text(
-                    "Logs show relay connections, sign-ins and errors, and stay on this phone until you copy them. They leave out your keys, your phone's network address and the text of your notes and messages, but they do list your relays and the phone model.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton({
+                },
+                { SettingRow(it, Icons.Rounded.Storage, "Media servers", "Where images and files you send are stored") { editingServers = true } },
+            )
+            Group(
+                "Notifications",
+                { SettingRow(it, Icons.Rounded.Notifications, "Check for activity", intervalLabel(interval)) { pickingInterval = true } },
+            )
+            Group(
+                "Feeds",
+                {
+                    SwitchRow(it, Icons.Rounded.Groups, "Trusted network", "Global and Trending show only people you follow and the people they follow", trustFilter) { on ->
+                        trustFilter = on
+                        core.setTrustFilter(on)
+                    }
+                },
+                {
+                    SwitchRow(it, Icons.Rounded.Link, "Link previews", "Shows a card for links. Each linked site can see your IP address", linkPreviews) { on ->
+                        linkPreviews = on
+                        core.setLinkPreviews(on)
+                    }
+                },
+                {
+                    SwitchRow(
+                        it,
+                        Icons.Rounded.SmartDisplay,
+                        "Embedded videos",
+                        "Plays YouTube, PeerTube, Invidious, Piped and similar videos in notes. Nothing loads until you tap play, then that site can see your IP address and what you watch",
+                        videoEmbeds,
+                    ) { on ->
+                        videoEmbeds = on
+                        core.setVideoEmbeds(on)
+                    }
+                },
+            )
+            Group(
+                "Troubleshooting",
+                {
+                    SettingRow(it, Icons.Rounded.ContentCopy, "Copy logs", "Connections, sign-ins and errors. Leaves out your keys, network address and the text of notes and messages") {
                         scope.act(nav) {
                             val report = core.logReport()
                             withContext(Dispatchers.Main) { context.copy(report) }
                             nav.say("Logs copied")
                         }
-                    }) { Text("Copy logs") }
-                    OutlinedButton({
+                    }
+                },
+                {
+                    SettingRow(it, Icons.Rounded.DeleteSweep, "Clear logs") {
                         AppLog.clear()
                         nav.say("Logs cleared")
-                    }) { Text("Clear logs") }
-                }
-            }
-            Section("Media servers") {
-                Text("Images and files you send are stored here. One server per line.", style = MaterialTheme.typography.bodyMedium)
-                OutlinedTextField(servers, { servers = it }, modifier = Modifier.fillMaxWidth())
-                FilledTonalButton({
-                    val list = servers.lines().map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
-                    if (list.isEmpty()) {
-                        nav.say("Servers start with https://")
-                    } else {
-                        scope.act(nav) {
-                            core.saveMediaServers(list)
-                            nav.say("Media servers saved")
-                        }
                     }
-                }) { Text("Save servers") }
-            }
+                },
+            )
+            Spacer(Modifier.height(16.dp))
+            SettingRow(RoundedCornerShape(24.dp), Icons.AutoMirrored.Rounded.Logout, "Sign out", color = MaterialTheme.colorScheme.error) { confirmSignOut = true }
             Text(
-                "Struthio",
+                listOfNotNull("Struthio", version).joinToString(" "),
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.labelMedium,
@@ -229,6 +274,35 @@ fun SettingsScreen() {
         }
     }
 
+    if (sealing) KeyBackupDialog { sealing = false }
+    if (editingServers) MediaServersDialog { editingServers = false }
+    if (pickingInterval) {
+        AlertDialog(
+            onDismissRequest = { pickingInterval = false },
+            title = { Text("Check for activity") },
+            text = {
+                Column {
+                    Text("Android may delay checks while the phone is idle.", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Notifier.INTERVALS.forEach { minutes ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                                interval = minutes
+                                core.setNotifyMinutes(minutes)
+                                pickingInterval = false
+                            }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(interval == minutes, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(intervalLabel(minutes))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton({ pickingInterval = false }) { Text("Close") } },
+        )
+    }
     if (confirmReveal) {
         AlertDialog(
             onDismissRequest = { confirmReveal = false },
@@ -241,6 +315,20 @@ fun SettingsScreen() {
                 }) { Text("Show key") }
             },
             dismissButton = { TextButton({ confirmReveal = false }) { Text("Cancel") } },
+        )
+    }
+    revealed?.let { key ->
+        AlertDialog(
+            onDismissRequest = { revealed = null },
+            title = { Text("Your private key") },
+            text = { SelectionContainer { Text(key, style = MaterialTheme.typography.bodySmall) } },
+            confirmButton = {
+                TextButton({
+                    context.copy(key)
+                    nav.say("Private key copied. Clear your clipboard after saving it.")
+                }) { Text("Copy") }
+            },
+            dismissButton = { TextButton({ revealed = null }) { Text("Close") } },
         )
     }
     if (confirmSignOut) {
@@ -261,82 +349,36 @@ fun SettingsScreen() {
 }
 
 @Composable
-fun EditProfileScreen() {
+private fun MediaServersDialog(onClose: () -> Unit) {
     val core = LocalCore.current
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
-    val me = core.me ?: return
-    val current = remember { runCatching { JSONObject(core.profiles[me]?.raw ?: "{}") }.getOrDefault(JSONObject()) }
-    var name by remember { mutableStateOf(current.optString("name")) }
-    var displayName by remember { mutableStateOf(current.optString("display_name")) }
-    var about by remember { mutableStateOf(current.optString("about")) }
-    var picture by remember { mutableStateOf(current.optString("picture")) }
-    var nip05 by remember { mutableStateOf(current.optString("nip05")) }
-    var lud16 by remember { mutableStateOf(current.optString("lud16")) }
-    var saving by remember { mutableStateOf(false) }
-
-    Column(Modifier.fillMaxSize().imePadding()) {
-        BackBar("Edit profile")
-        Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-                OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(name, { name = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(about, { about = it }, label = { Text("About") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(picture, { picture = it }, label = { Text("Picture URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(nip05, { nip05 = it }, label = { Text("Nostr address (NIP-05)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(lud16, { lud16 = it }, label = { Text("Lightning address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Button(
-                    onClick = {
-                        saving = true
-                        scope.act(nav) {
-                            try {
-                                core.saveProfile(
-                                    mapOf(
-                                        "name" to name, "display_name" to displayName, "about" to about,
-                                        "picture" to picture, "nip05" to nip05, "lud16" to lud16,
-                                    ),
-                                )
-                                nav.say("Profile saved")
-                                nav.pop()
-                            } finally {
-                                saving = false
-                            }
-                        }
-                    },
-                    enabled = !saving,
-                ) { Text(if (saving) "Saving…" else "Save profile") }
-        }
-    }
-}
-
-/** Shows what each relay really holds for this account. Everything in the report is public. */
-@Composable
-fun AccountCheckScreen() {
-    val core = LocalCore.current
-    val nav = LocalNav.current
-    val context = LocalContext.current
-    val report by produceState<String?>(null) { value = core.accountCheck() }
-    Column(Modifier.fillMaxSize()) {
-        BackBar("Account check")
-        val text = report
-        if (text == null) {
-            Text("Asking your relays…", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Loading(Modifier.fillMaxWidth().padding(24.dp))
-        } else {
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = PageGutter, vertical = 8.dp).navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                FilledTonalButton({
-                    context.copy(text)
-                    nav.say("Report copied")
-                }) { Text("Copy report") }
-                SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall) }
+    var servers by remember { mutableStateOf(core.mediaServers().joinToString("\n")) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Media servers") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Images and files you send are stored here. One server per line.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(servers, { servers = it }, modifier = Modifier.fillMaxWidth())
             }
-        }
-    }
+        },
+        confirmButton = {
+            TextButton({
+                val list = servers.lines().map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
+                if (list.isEmpty()) {
+                    nav.say("Servers start with https://")
+                } else {
+                    scope.act(nav) {
+                        core.saveMediaServers(list)
+                        nav.say("Media servers saved")
+                        onClose()
+                    }
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClose) { Text("Cancel") } },
+    )
 }
 
 /** Exports the key sealed with a password. Nothing here is saved or sent anywhere. */

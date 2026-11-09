@@ -157,7 +157,7 @@ sleep 2
 adb exec-out screencap -p > smoke/09x2-settings.png
 adb shell input swipe 500 500 500 1600 500
 sleep 2
-tap_text "View profile"
+adb shell input touchscreen tap $((W/2)) $((H*17/100))
 sleep 6
 adb exec-out screencap -p > smoke/09y-own-profile.png
 tap_text "Edit profile"
@@ -206,7 +206,7 @@ import base64,glob,io
 from PIL import Image
 files=sorted(glob.glob('smoke/0*.png'))
 w,h=300,660
-files=[f for f in files if any(x in f for x in ('08b-','08b2-','08c-','08d-'))][:10]
+files=[f for f in files if any(x in f for x in ('09x-','09x2-','09y-','09a-'))][:10]
 sheet=Image.new('RGB',(w*5,h*2),(128,128,128))
 for i,f in enumerate(files):
     sheet.paste(Image.open(f).convert('RGB').resize((w,h)),((i%5)*w,(i//5)*h))
