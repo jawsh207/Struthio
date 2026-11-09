@@ -18,15 +18,15 @@ find_tap() { # text or description, optional number of scrolls to look through
 import re,subprocess,sys
 xml=open('smoke/ui.xml',errors='ignore').read()
 for node in re.findall(r'<node [^>]*>',xml):
-    if f'text="{sys.argv[1]}"' in node or f'content-desc="{sys.argv[1]}"' in node:
+    if re.search(r'(text|content-desc)="[^"]*'+re.escape(sys.argv[1]), node):
         a,b,c,d=map(int,re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',node).groups())
         subprocess.run(['adb','shell','input','tap',str((a+c)//2),str((b+d)//2)]); print('tapped',sys.argv[1]); sys.exit(0)
 sys.exit(1)
 PY
     then sleep 2; return 0; fi
-    adb shell input swipe 500 1500 500 800 400; sleep 1
+    adb shell input swipe 540 1700 540 1100 600; sleep 2
   done
-  echo "not found: $1"; return 1
+  echo "not found: $1"; grep -o 'text="[^"]\+"' smoke/ui.xml | head -30; return 1
 }
 
 find_tap "nsec, ncryptsec, or npub to browse read-only"
