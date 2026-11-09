@@ -65,7 +65,7 @@ jobs:
             if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
               FILES=$(git ls-files 'release-notes/v*.md')
             else
-              FILES=$(git diff --name-only --diff-filter=AM "$BEFORE" "$GITHUB_SHA" -- release-notes/)
+              FILES=$(git diff --name-only --diff-filter=AMR "$BEFORE" "$GITHUB_SHA" -- release-notes/)
             fi
             # Newest version whose notes were added or changed in this push and isn't tagged yet.
             TAG=$(for f in $FILES; do
