@@ -99,6 +99,9 @@ fun EmbedCard(url: String, embed: VideoEmbed) {
 
 private const val ORIGIN = "https://app.struthio.nostr/"
 
+/** Words a player page shows when it won't play, worth a line in the logs. */
+private val REFUSALS = listOf("Error", "error", "Sign in", "unavailable", "not available", "blocked")
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun EmbedPlayer(embed: VideoEmbed) {
@@ -129,8 +132,7 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                         view.postDelayed({
                             view.evaluateJavascript("(document.body&&document.body.innerText||'').slice(0,200)") { text ->
                                 val shown = text.trim('"').replace("\\n", " ").trim()
-                                android.util.Log.i("StruthioEmbed", "page text: $shown")
-                                if (shown.isNotEmpty()) AppLog.add("video ${embed.site}: shows \"${shown.take(120)}\"")
+                                if (REFUSALS.any { it in shown }) AppLog.add("video ${embed.site}: shows \"${shown.take(120)}\"")
                             }
                         }, 6_000)
                     }
@@ -148,7 +150,6 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                         if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
                             AppLog.add("video ${embed.site}: ${message.message().take(160)}")
                         }
-                        android.util.Log.i("StruthioEmbed", "${message.messageLevel()} ${message.message()}")
                         return true
                     }
                 }
