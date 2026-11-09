@@ -15,6 +15,7 @@ import app.struthio.nostr.core.nwcRequestJson
 import app.struthio.nostr.core.bolt11Msats
 import app.struthio.nostr.net.AppLog
 import app.struthio.nostr.net.Http
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withTimeoutOrNull
@@ -32,6 +33,7 @@ data class Transaction(
 class Wallet(private val core: Core) {
     private companion object {
         const val METHODS = "nwc_methods"
+        const val LISTEN_MS = 8_000L
 
         /** For connections saved before methods were kept; the next answer from the wallet corrects it. */
         val ASSUMED_METHODS = setOf("pay_invoice", "get_balance", "make_invoice", "list_transactions")
@@ -110,6 +112,7 @@ class Wallet(private val core: Core) {
         )
         val request = c.signer.signNow(Draft(c.signer.pubkey, nowSeconds(), Kind.NWC_REQUEST, tags, content))
         val answer = CompletableDeferred<JSONObject>()
+        val listening = CompletableDeferred<Unit>()
         val sub = core.pool.subscribe(
             c.relays,
             listOf(
@@ -119,14 +122,25 @@ class Wallet(private val core: Core) {
                     tags = mapOf("e" to listOf(request.id), "p" to listOf(c.signer.pubkey)),
                 ),
             ),
+            onDone = { _, ok -> if (ok) listening.complete(Unit) },
         ) { e, _ ->
             runCatching { answer.complete(JSONObject(Nip44.decrypt(e.content, c.conversation))) }
         }
         try {
+            // Wallet answers are never stored by relays, so the request only goes out once the
+            // relay is listening for the answer. Before, a quick wallet could reply too early.
+            val ready = withTimeoutOrNull(LISTEN_MS) { listening.await() } != null
             val sent = core.pool.publish(request, c.relays)
-            if (sent.values.none { it.ok }) throw UserError("The wallet relay did not take the request.")
+            val accepted = sent.filterValues { it.ok }.keys
+            AppLog.add(
+                "wallet $method to ${c.relays.joinToString(" ")}: " +
+                    (if (accepted.isEmpty()) "refused ${sent.values.joinToString { it.message }}" else "sent") +
+                    if (ready) "" else " (relay wasn't ready to listen)",
+            )
+            if (accepted.isEmpty()) throw UserError("The wallet relay did not take the request.")
             val response = withTimeoutOrNull(timeoutMs) { answer.await() }
-                ?: throw UserError("The wallet did not respond.")
+            AppLog.add("wallet $method: " + if (response == null) "no answer in ${timeoutMs / 1000}s" else "answered")
+            if (response == null) throw UserError("The wallet did not respond.")
             response.optJSONObject("error")?.let { throw UserError(it.optString("message").ifEmpty { it.optString("code") }) }
             return response.optJSONObject("result") ?: JSONObject()
         } finally {
@@ -139,9 +153,11 @@ class Wallet(private val core: Core) {
         try {
             fetch()
             problem.value = null
-        } catch (e: UserError) {
-            AppLog.add("wallet refresh failed: ${e.message}")
-            problem.value = e.message
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.add("wallet refresh failed: ${e.message ?: e.javaClass.simpleName}")
+            problem.value = (e as? UserError)?.message ?: "Something went wrong"
         }
     }
 
