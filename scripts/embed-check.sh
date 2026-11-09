@@ -46,10 +46,11 @@ sleep 8
 adb exec-out screencap -p > smoke/e3-play.png
 sleep 8
 adb exec-out screencap -p > smoke/e4-later.png
-# Tap the middle of the player, as a person would if it shows its own play button.
-adb exec-out uiautomator dump /dev/tty > smoke/ui.xml 2>/dev/null
-adb shell input tap $(cat smoke/last.txt); sleep 10
-adb exec-out screencap -p > smoke/e5-tapped.png
+# The player has to follow the card as the note scrolls, and stay inside the list.
+adb shell input swipe $((W/2)) $((H*60/100)) $((W/2)) $((H*45/100)) 500; sleep 2
+adb exec-out screencap -p > smoke/e5-scrolled.png
+adb shell input swipe $((W/2)) $((H*60/100)) $((W/2)) $((H*30/100)) 500; sleep 2
+adb exec-out screencap -p > smoke/e6-under-bar.png
 adb logcat -d > smoke/logcat.txt
 PID=$(adb shell pidof $PKG)
 echo "--- app log lines"

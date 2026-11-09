@@ -13,6 +13,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import kotlin.math.roundToInt
 import android.content.Intent
 import android.net.Uri
 import android.webkit.ConsoleMessage
@@ -123,7 +128,6 @@ private fun EmbedPlayer(embed: VideoEmbed) {
     val activity = context as? Activity
     // The player's own full-screen button, while it's showing: the view it handed over and how to end it.
     var fullscreen by remember { mutableStateOf<Pair<View, WebChromeClient.CustomViewCallback>?>(null) }
-    var web by remember { mutableStateOf<WebView?>(null) }
 
     fun leaveFullscreen() {
         val (view, callback) = fullscreen ?: return
@@ -136,27 +140,10 @@ private fun EmbedPlayer(embed: VideoEmbed) {
 
     BackHandler(fullscreen != null) { leaveFullscreen() }
 
-    // Leaving the app pauses the video; coming back lets it carry on.
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> web?.onPause()
-                Lifecycle.Event.ON_RESUME -> web?.onResume()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            leaveFullscreen()
-        }
-    }
-
-    AndroidView(
-        factory = {
-            WebView(it).apply {
-                web = this
+    // The player is an ordinary view laid over the screen, not drawn inside it: inside a Compose screen
+    // Android's web player hides the picture behind the screen's layers, leaving sound over a black or white box.
+    val player = remember {
+            WebView(context).apply {
                 setBackgroundColor(android.graphics.Color.BLACK)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -220,13 +207,62 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                 val start = embed.player + (if ('?' in embed.player) "&" else "?") + "autoplay=1"
                 loadUrl(start, mapOf("Referer" to ORIGIN))
             }
-        },
-        onRelease = { view ->
-            web = null
-            view.stopLoading()
-            view.loadUrl("about:blank")
-            view.destroy()
-        },
-        modifier = Modifier.fillMaxSize(),
-    )
+    }
+    val host = activity?.window?.decorView as? FrameLayout
+    DisposableEffect(player, host) {
+        host?.addView(player, FrameLayout.LayoutParams(0, 0))
+        onDispose {
+            host?.removeView(player)
+            player.stopLoading()
+            player.loadUrl("about:blank")
+            player.destroy()
+        }
+    }
+    // Leaving the app pauses the video; coming back lets it carry on.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> player.onPause()
+                Lifecycle.Event.ON_RESUME -> player.onResume()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            leaveFullscreen()
+        }
+    }
+
+
+    // Keeps the player over the card as the note scrolls, cut to the part of the card that's on screen.
+    Box(Modifier.fillMaxSize().onGloballyPositioned { place(player, host, it) })
+}
+
+private fun place(player: WebView, host: FrameLayout?, card: LayoutCoordinates) {
+    if (host == null || !card.isAttached) return
+    val at = card.positionInWindow()
+    val width = card.size.width
+    val height = card.size.height
+    val params = player.layoutParams
+    if (params.width != width || params.height != height) {
+        params.width = width
+        params.height = height
+        player.layoutParams = params
+    }
+    player.translationX = at.x
+    player.translationY = at.y
+    val seen = card.boundsInWindow()
+    if (seen.width <= 0f || seen.height <= 0f) {
+        player.visibility = View.INVISIBLE
+    } else {
+        player.visibility = View.VISIBLE
+        player.clipBounds = android.graphics.Rect(
+            (seen.left - at.x).roundToInt(),
+            (seen.top - at.y).roundToInt(),
+            (seen.right - at.x).roundToInt(),
+            (seen.bottom - at.y).roundToInt(),
+        )
+    }
 }
