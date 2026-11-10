@@ -69,6 +69,12 @@ class RelayPool(
     /** The network Android routes through by default; a different one means Wi-Fi and mobile data swapped. */
     private var network: Any? = null
 
+    /**
+     * Until when a network that just came up is still settling: Android reports it a moment before
+     * names can be looked up, so failures then say nothing about the relays.
+     */
+    @Volatile private var settleUntil = 0L
+
     val isVisible: Boolean get() = visible.get() > 0
 
     private fun relay(url: String) = relays.getOrPut(url) { Relay(url) }
@@ -209,6 +215,7 @@ class RelayPool(
         if (previous == null && wasOnline) return // the first report, at start-up
         if (previous == id && wasOnline) return
         val switched = previous != null && previous != id
+        settleUntil = System.currentTimeMillis() + SETTLE_MS
         AppLog.add(if (!wasOnline) "network back" else "network changed")
         relays.values.forEach { it.renew(dropOld = switched) }
     }
@@ -413,6 +420,12 @@ class RelayPool(
 
         private fun ensureConnected() {
             if (socket != null || !foreground || !onlineState.value) return
+            // A paused relay, after failures or a refusal, isn't dialled early because a feed wants it.
+            val wait = maxOf(failedUntil, limitedUntil) - System.currentTimeMillis()
+            if (wait > 50) {
+                if (retryJob?.isActive != true) retryLater(wait)
+                return
+            }
             val ws = WebSocket(url, onOpen = ::opened, onText = ::message, onClosed = ::closed)
             socket = ws
             ws.connect()
@@ -447,9 +460,23 @@ class RelayPool(
             requests.forEach { socket?.send(it) }
         }
 
+        /** Tries again after [delayMs], if anything still wants this relay. */
+        private fun retryLater(delayMs: Long) {
+            retryJob?.cancel()
+            retryJob = scope.launch {
+                delay(delayMs)
+                synchronized(lock) {
+                    retryJob = null
+                    if (subs.isNotEmpty() || pending.isNotEmpty()) ensureConnected()
+                }
+            }
+        }
+
         private fun closed(error: Throwable?) {
-            // Without a network every relay fails at once: that says nothing about the relays.
-            val offline = !onlineState.value
+            // Without a network every relay fails at once: that says nothing about the relays. Nor
+            // does a failure while a network that just came up is still settling.
+            val settling = System.currentTimeMillis() < settleUntil
+            val offline = !onlineState.value || settling
             val replaced = synchronized(lock) { renewing.also { renewing = false } }
             if (!leaving && !offline && !replaced) error?.let { note(url, "connection: ${it.message ?: it.javaClass.simpleName}") }
             signedIn = false
@@ -496,13 +523,10 @@ class RelayPool(
                 if (replaced && foreground && (subs.isNotEmpty() || pending.isNotEmpty())) {
                     retryJob?.cancel()
                     ensureConnected()
+                } else if (settling && foreground && !leaving && (subs.isNotEmpty() || pending.isNotEmpty())) {
+                    retryLater(settleUntil - now + 500)
                 } else if (retry) {
-                    val delayMs = maxOf(wait, limitedUntil - now)
-                    retryJob?.cancel()
-                    retryJob = scope.launch {
-                        delay(delayMs)
-                        synchronized(lock) { if (subs.isNotEmpty()) ensureConnected() }
-                    }
+                    retryLater(maxOf(wait, limitedUntil - now))
                 }
             }
             failed.forEach { it.result.complete(PublishResult(false, error?.message ?: "connection closed")) }
@@ -521,8 +545,9 @@ class RelayPool(
         /** After a network change: forget past failures, and replace a socket from the old network. */
         fun renew(dropOld: Boolean) {
             val old = synchronized(lock) {
+                // A new network says nothing about a relay that refused us, so that pause stays.
                 failures = 0
-                failedUntil = 0
+                failedUntil = limitedUntil
                 retryJob?.cancel()
                 val current = socket
                 if (current != null && dropOld) {
@@ -537,12 +562,8 @@ class RelayPool(
         }
 
         fun wake() {
-            synchronized(lock) {
-                // Coming back often means a new network, so past connection failures say little.
-                failures = 0
-                failedUntil = 0
-                if (subs.isNotEmpty()) ensureConnected()
-            }
+            // Pauses stay: a network change, which does say something, is reported on its own.
+            synchronized(lock) { if (subs.isNotEmpty()) ensureConnected() }
         }
 
         private fun message(text: String) {
@@ -685,6 +706,7 @@ class RelayPool(
         const val IDLE_CLOSE_MS = 45_000L
         const val PAUSE_GRACE_MS = 20_000L
         const val MAX_BACKOFF_S = 300L
+        const val SETTLE_MS = 4_000L
         const val STABLE_MS = 30_000L
         const val RATE_LIMIT_PAUSE_MS = 300_000L
         const val REFUSED_MS = 30 * 60 * 1000L
