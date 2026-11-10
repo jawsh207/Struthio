@@ -29,12 +29,23 @@ class Subscription internal constructor(
     /** Called per relay: true for end of stored events, false when the relay failed or refused. */
     internal val onDone: (String, Boolean) -> Unit,
 ) {
-    internal val request: String by lazy {
-        buildString {
-            append("[\"REQ\",").append(quoteJson(id))
-            filters.forEach { append(',').append(it.toJson()) }
-            append(']')
-        }
+    internal val request: String by lazy { requestFor(filters) }
+
+    /**
+     * The same request, asking only for events from [since] on: what a relay that already sent
+     * everything older is asked after a reconnect, rather than sending it all again. A lookup by id
+     * is left alone, as it isn't about time.
+     */
+    internal fun requestSince(since: Long): String = requestFor(
+        filters.map { f ->
+            if (f.ids != null) f else Filter(f.ids, f.authors, f.kinds, f.tags, maxOf(f.since ?: 0, since), f.until, f.limit, f.search)
+        },
+    )
+
+    private fun requestFor(list: List<Filter>) = buildString {
+        append("[\"REQ\",").append(quoteJson(id))
+        list.forEach { append(',').append(it.toJson()) }
+        append(']')
     }
 }
 
@@ -290,6 +301,15 @@ class RelayPool(
         /** Events held until the open REQs are out, so an instant answer to them isn't missed. */
         private val afterReqs = ArrayList<String>()
 
+        /**
+         * Per subscription, up to when this relay is known to have sent everything (seconds): its
+         * end of stored events, then the moment the connection dropped while events streamed live.
+         */
+        private val caughtUp = HashMap<String, Long>()
+
+        /** Subscriptions that reached their end of stored events on the current connection. */
+        private val caughtUpHere = HashSet<String>()
+
         /** Whether REQs are still going out; guarded by the lock, unlike the pacer job's own state. */
         private var pumping = false
 
@@ -343,13 +363,14 @@ class RelayPool(
                             afterReqs.clear()
                             pumping = false
                         }
-                        n
+                        // After a reconnect, only what's newer than what this relay already sent.
+                        n?.let { sub -> caughtUp[sub.id]?.let { sub.requestSince(it - CATCH_UP_MARGIN_S) } ?: sub.request }
                     }
                     if (next == null) {
                         held.forEach { socket?.send(it) }
                         break
                     }
-                    socket?.send(next.request)
+                    socket?.send(next)
                     delay(REQ_SPACING_MS)
                 }
             }
@@ -491,6 +512,10 @@ class RelayPool(
                 // Only a connection that lasted counts as healthy. A relay that accepts and then
                 // drops us must back off, or every subscription gets resent every few seconds.
                 val lasted = open && now - openedAt > STABLE_MS
+                // Everything up to now came in live, for subscriptions that had caught up.
+                caughtUp.keys.retainAll(subs.keys)
+                if (open) caughtUpHere.forEach { if (it in subs) caughtUp[it] = now / 1000 }
+                caughtUpHere.clear()
                 open = false
                 socket = null
                 sent.clear()
@@ -587,7 +612,12 @@ class RelayPool(
                     val item = synchronized(lock) { counts.remove(msg.optString(1)) } ?: return
                     item.second(msg.optJSONObject(2)?.optLong("count"))
                 }
-                "EOSE" -> synchronized(lock) { subs[msg.optString(1)] }?.onDone?.invoke(url, true)
+                "EOSE" -> synchronized(lock) {
+                    subs[msg.optString(1)]?.also {
+                        caughtUp[it.id] = maxOf(caughtUp[it.id] ?: 0, System.currentTimeMillis() / 1000)
+                        caughtUpHere += it.id
+                    }
+                }?.onDone?.invoke(url, true)
                 "OK" -> ok(msg.optString(1), msg.optBoolean(2), msg.optString(3))
                 "CLOSED" -> {
                     val id = msg.optString(1)
@@ -707,6 +737,9 @@ class RelayPool(
         const val PAUSE_GRACE_MS = 20_000L
         const val MAX_BACKOFF_S = 300L
         const val SETTLE_MS = 4_000L
+
+        /** Slack in catch-up requests, for relays whose clocks run behind. */
+        const val CATCH_UP_MARGIN_S = 120L
         const val STABLE_MS = 30_000L
         const val RATE_LIMIT_PAUSE_MS = 300_000L
         const val REFUSED_MS = 30 * 60 * 1000L
