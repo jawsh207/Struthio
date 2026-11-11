@@ -92,7 +92,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.URLEncoder
@@ -1681,14 +1680,7 @@ class Core(private val context: Context) {
     suspend fun pingRelay(url: String): Long? {
         val searches = relayInfo(url)?.nips?.contains(50) == true
         val filter = if (searches) Filter(kinds = listOf(Kind.NOTE), search = "nostr", limit = 1) else Filter(kinds = listOf(Kind.METADATA), limit = 1)
-        val start = System.currentTimeMillis()
-        val first = AtomicLong()
-        val answered = pool.query(setOf(url), listOf(filter), 5_000) { _, _ -> first.compareAndSet(0, System.currentTimeMillis()) }
-        return when {
-            first.get() > 0 -> first.get() - start
-            url in answered -> System.currentTimeMillis() - start
-            else -> null
-        }
+        return pool.probe(url, filter)
     }
 
     /** Unread means not opened here. Marking all read moves a line that older items fall behind. */

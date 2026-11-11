@@ -138,6 +138,38 @@ class RelayPool(
         return synchronized(remaining) { answered.toSet() }
     }
 
+    /**
+     * How long a relay takes to answer a request, in ms, on a connection of its own: the shared
+     * one may be busy with Struthio's own requests, queued behind them, or resting after failures,
+     * none of which says how the relay itself is doing. Any answer counts, a refusal too. Null when
+     * it can't be reached or doesn't answer within [timeoutMs].
+     */
+    suspend fun probe(url: String, filter: Filter, timeoutMs: Long = 8_000): Long? {
+        val answer = CompletableDeferred<Long?>()
+        var sentAt = 0L
+        val id = "p${nextId.incrementAndGet()}"
+        lateinit var ws: WebSocket
+        ws = WebSocket(
+            url,
+            onOpen = {
+                sentAt = System.currentTimeMillis()
+                if (!ws.send("[\"REQ\",${quoteJson(id)},${filter.toJson()}]")) answer.complete(null)
+            },
+            onText = { text ->
+                val type = runCatching { JSONArray(text).optString(0) }.getOrNull()
+                // A sign-in challenge can come before the request is even read; it isn't an answer.
+                if (type != null && type != "AUTH" && sentAt > 0) answer.complete(System.currentTimeMillis() - sentAt)
+            },
+            onClosed = { answer.complete(null) },
+        )
+        ws.connect()
+        return try {
+            withTimeoutOrNull(timeoutMs) { answer.await() }
+        } finally {
+            ws.close()
+        }
+    }
+
     /** NIP-45 counts where relays offer them; the highest answer wins because relays see partial data. */
     suspend fun count(urls: Set<String>, filter: Filter, timeoutMs: Long = 5_000): Long? {
         var best: Long? = null
