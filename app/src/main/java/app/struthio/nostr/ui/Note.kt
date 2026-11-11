@@ -289,7 +289,8 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
     }
     LaunchedEffect(mentions) { mentions.forEach(core::wantProfile) }
     val titled = event.kind == Kind.PICTURE || event.kind in Kind.VIDEOS
-    if (titled) titleOf(event)?.let {
+    // Some posts repeat their title as the start of their text; once is enough.
+    if (titled) titleOf(event)?.takeUnless { event.content.trimStart().startsWith(it) }?.let {
         Text(
             it,
             modifier = Modifier.padding(top = if (inQuote) 4.dp else 12.dp),
