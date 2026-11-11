@@ -1,5 +1,11 @@
 package app.struthio.nostr.ui
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import app.struthio.nostr.core.LocalSigner
+import app.struthio.nostr.data.RemoteSigner
 import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.DropdownMenuItem
@@ -653,6 +659,7 @@ fun Onboarding(modifier: Modifier = Modifier) {
     var key by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var remoteSigning by remember { mutableStateOf(false) }
 
     fun run(block: suspend () -> Unit) {
         busy = true
@@ -714,6 +721,82 @@ fun Onboarding(modifier: Modifier = Modifier) {
                     enabled = !busy,
                 ) { Text("Use a signer app") }
             }
+            OutlinedButton({ remoteSigning = true }, enabled = !busy) { Text("Use a remote signer (bunker)") }
+        }
+    }
+    if (remoteSigning) RemoteSignInSheet { remoteSigning = false }
+}
+
+/**
+ * NIP-46 sign-in. Either paste a bunker:// link from the signer, or let the signer connect to the
+ * nostrconnect:// link shown here, by scanning it or opening it on this phone.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RemoteSignInSheet(onDismiss: () -> Unit) {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var link by remember { mutableStateOf("") }
+    var connecting by remember { mutableStateOf(false) }
+    // One throwaway client key and secret for this sheet; a new sheet makes new ones.
+    val clientKey = remember { RemoteSigner.newClientKey() }
+    val secret = remember { RemoteSigner.randomSecret() }
+    val connectUri = remember {
+        RemoteSigner.nostrConnectUri(LocalSigner(clientKey).pubkey, RemoteSigner.CONNECT_RELAYS, secret)
+    }
+    // Listens for a signer answering the link for as long as the sheet is open.
+    LaunchedEffect(clientKey) {
+        val ok = runCatching { core.signInNostrConnect(clientKey, secret, RemoteSigner.CONNECT_RELAYS, 10 * 60_000L) }
+        ok.exceptionOrNull()?.let { nav.say(it.message ?: "The remote signer couldn't connect.") }
+        if (ok.getOrNull() == true) onDismiss()
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp).imePadding(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Use a remote signer", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Your key stays in a signer like nsec.app or a bunker of your own. Struthio asks it to sign over Nostr relays, encrypted.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(link, { link = it }, label = { Text("bunker:// link") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(
+                {
+                    connecting = true
+                    scope.act(nav) {
+                        try {
+                            core.signInBunker(link)
+                            onDismiss()
+                        } finally {
+                            connecting = false
+                        }
+                    }
+                },
+                enabled = link.trim().startsWith("bunker://") && !connecting,
+            ) { Text(if (connecting) "Connecting… approve it in your signer" else "Connect") }
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            Text("Or connect from your signer", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Scan this with your signer, or open it in a signer on this phone. Struthio is waiting for it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrImage(connectUri) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton({
+                    context.copy(connectUri)
+                    nav.say("Link copied")
+                }) { Text("Copy link") }
+                OutlinedButton({
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(connectUri))) }
+                        .onFailure { nav.say("No signer on this phone opens these links") }
+                }) { Text("Open in signer") }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

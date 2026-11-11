@@ -1,6 +1,7 @@
 package app.struthio.nostr.data
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -444,12 +445,22 @@ class Core(private val context: Context) {
         val external = prefs.getString("signer_package", null)
         val externalKey = prefs.getString("signer_pubkey", null)
         val readOnly = prefs.getString("read_only_pubkey", null)
+        val bunker = prefs.getString("bunker_remote", null)
+        val bunkerUser = prefs.getString("bunker_user", null)
+        val bunkerRelays = prefs.getString("bunker_relays", null)?.split(' ')?.filter { it.isNotBlank() }
+        val bunkerKey = runCatching { secure.get(KEY_BUNKER) }.getOrNull()
         val active: Signer? = when {
+            bunker != null && bunkerUser != null && bunkerKey != null && !bunkerRelays.isNullOrEmpty() ->
+                RemoteSigner(pool, bunkerKey, bunker, bunkerRelays, bunkerUser, ::openAuthUrl)
             external != null && externalKey != null -> ExternalSigner(context, externalKey, external)
             readOnly != null -> ReadOnlySigner(readOnly)
             else -> runCatching { secure.get(KEY_SECRET) }.getOrNull()?.let { LocalSigner(it) }
         }
         if (active != null) activate(active)
+        // NIP-46 asks clients to let the signer move the connection now and then; launch is a good time.
+        (active as? RemoteSigner)?.let { remote ->
+            scope.launch { remote.switchRelays()?.let { prefs.edit().putString("bunker_relays", it.joinToString(" ")).apply() } }
+        }
         wallet.restore()
     }
 
@@ -543,6 +554,66 @@ class Core(private val context: Context) {
 
     suspend fun exportSecret(): String? = secure.get(KEY_SECRET)?.let(Nip19::nsec)
 
+    /** A remote signer wants the user to approve on a web page (NIP-46 auth challenge). */
+    private fun openAuthUrl(url: String) {
+        if (!url.startsWith("https://")) return
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    /** NIP-46 from a `bunker://` link: connect with its secret, then ask which account it signs for. */
+    suspend fun signInBunker(link: String) = withContext(Dispatchers.IO) {
+        val bunker = RemoteSigner.parseBunker(link) ?: throw UserError("That isn't a bunker:// link.")
+        val clientKey = RemoteSigner.newClientKey()
+        val session = RemoteSigner.Session(pool, clientKey, bunker.remote, bunker.relays, ::openAuthUrl)
+        try {
+            val reply = session.request(
+                "connect",
+                listOf(bunker.remote, bunker.secret.orEmpty(), RemoteSigner.PERMISSIONS, RemoteSigner.METADATA),
+            )
+            if (reply != "ack" && bunker.secret != null && reply != bunker.secret) {
+                throw UserError("The remote signer didn't accept the connection.")
+            }
+            finishRemoteSignIn(session, clientKey, bunker.remote, bunker.relays)
+        } finally {
+            session.close()
+        }
+    }
+
+    /**
+     * NIP-46 the other way round: the signer scanned or opened the `nostrconnect://` link Struthio
+     * showed. Waits for its answer, which must carry the link's secret.
+     */
+    suspend fun signInNostrConnect(clientKey: ByteArray, secret: String, relays: List<String>, timeoutMs: Long) =
+        withContext(Dispatchers.IO) {
+            val remote = RemoteSigner.awaitNostrConnect(pool, clientKey, relays, secret, timeoutMs) ?: return@withContext false
+            val session = RemoteSigner.Session(pool, clientKey, remote, relays, ::openAuthUrl)
+            try {
+                finishRemoteSignIn(session, clientKey, remote, relays)
+            } finally {
+                session.close()
+            }
+            true
+        }
+
+    private suspend fun finishRemoteSignIn(session: RemoteSigner.Session, clientKey: ByteArray, remote: String, relays: List<String>) {
+        // The signer's own key isn't necessarily the account's: the NIP says to ask.
+        val user = session.request("get_public_key", emptyList()).trim().lowercase()
+        if (!Hex.isKey(user)) throw UserError("The remote signer didn't say which account it signs for.")
+        val moved = session.switchRelays() ?: relays
+        secure.put(KEY_BUNKER, clientKey)
+        prefs.edit()
+            .putString("bunker_remote", remote)
+            .putString("bunker_user", user)
+            .putString("bunker_relays", moved.joinToString(" "))
+            .remove("read_only_pubkey")
+            .remove("signer_package")
+            .apply()
+        AppLog.add("signed in with a remote signer")
+        activate(RemoteSigner(pool, clientKey, remote, moved, user, ::openAuthUrl))
+    }
+
     /**
      * NIP-62: asks every relay to delete everything this key ever published, messages to it
      * included. It can't be undone. Sent as widely as possible, as the NIP asks of a request to
@@ -569,6 +640,9 @@ class Core(private val context: Context) {
     }
 
     suspend fun signOut() {
+        // A courtesy to the remote signer; its client key goes either way, as the NIP requires.
+        (signer.value as? RemoteSigner)?.let { runCatching { it.logout() } }
+        secure.remove(KEY_BUNKER)
         sessionSubs.forEach(pool::close)
         sessionSubs.clear()
         secure.remove(KEY_SECRET)
@@ -1504,6 +1578,7 @@ class Core(private val context: Context) {
         report.append("Sign-in: ").append(
             when (active) {
                 is ExternalSigner -> "signer app"
+                is RemoteSigner -> "remote signer"
                 is ReadOnlySigner -> "read-only"
                 is LocalSigner -> "private key"
                 else -> "none"
@@ -1669,6 +1744,7 @@ class Core(private val context: Context) {
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
         val key = when (signer.value) {
             is ExternalSigner -> "signer app"
+            is RemoteSigner -> "remote signer"
             is ReadOnlySigner -> "read-only"
             null -> "signed out"
             else -> "key on this phone"
@@ -1698,6 +1774,9 @@ class Core(private val context: Context) {
 
     companion object {
         const val KEY_SECRET = "nsec"
+
+        /** The throwaway key Struthio uses to talk to a NIP-46 remote signer. */
+        const val KEY_BUNKER = "nip46_client"
         const val KEY_NWC = "nwc"
         private const val CACHE_EVENTS = 20_000
         private const val IMAGE_CACHE_BYTES = 80L * 1024 * 1024
