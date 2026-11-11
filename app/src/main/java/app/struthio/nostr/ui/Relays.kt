@@ -52,6 +52,8 @@ import app.struthio.nostr.core.RelayList
 import app.struthio.nostr.core.nipName
 import app.struthio.nostr.core.normalizeRelay
 import app.struthio.nostr.data.Core
+import app.struthio.nostr.net.RelayStats
+import app.struthio.nostr.net.formatBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -75,6 +77,16 @@ private fun rememberPing(url: String): Long? {
     return produceState<Long?>(CHECKING, url) { value = core.pingRelay(url) }.value
 }
 
+/** One line for the list: data down and up, and how often it could be reached. Null before any use. */
+private fun summaryLine(s: RelayStats.Summary): String? {
+    if (s.tries == 0 && s.down == 0L && s.up == 0L) return null
+    return listOfNotNull(
+        "↓ ${formatBytes(s.down)}",
+        "↑ ${formatBytes(s.up)}",
+        s.uptime?.let { "$it% up" },
+    ).joinToString(" · ")
+}
+
 private fun statusText(ping: Long?, info: RelayInfo?): String = when {
     ping == CHECKING -> "Checking…"
     ping != null -> "$ping ms"
@@ -93,6 +105,7 @@ private fun statusColor(ping: Long?, info: RelayInfo?): Color = when {
 @Composable
 private fun RelayRow(url: String, onRemove: () -> Unit) {
     val nav = LocalNav.current
+    val core = LocalCore.current
     val info = rememberRelayInfo(url)
     val ping = rememberPing(url)
     Row(
@@ -108,6 +121,11 @@ private fun RelayRow(url: String, onRemove: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // Read again once the check is done, as the check itself is counted.
+            val usage = remember(url, ping) { core.pool.usage(url) }
+            usage?.let { summaryLine(it) }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         IconButton(onRemove) { Icon(Icons.Rounded.Close, "Remove") }
     }
@@ -267,6 +285,19 @@ fun RelayInfoScreen(url: String) {
             }
             if (uses.isNotEmpty()) {
                 Section("You use it for") { uses.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) } }
+            }
+            val usage = remember(url, ping) { core.pool.usage(url) }
+            if (usage != null && (usage.tries > 0 || usage.down > 0 || usage.up > 0)) {
+                Section("Last ${RelayStats.DAYS} days") {
+                    Fact("Downloaded", formatBytes(usage.down))
+                    Fact("Uploaded", formatBytes(usage.up))
+                    usage.uptime?.let { Fact("Uptime", "$it% · reached ${usage.reached} of ${usage.tries} tries") }
+                    Text(
+                        "Measured from Struthio's own connections, so only while you use it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             val problems = core.pool.problemsOf(url)
             if (problems.isNotEmpty()) {

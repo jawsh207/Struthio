@@ -62,7 +62,12 @@ data class PublishResult(val ok: Boolean, val message: String)
 class RelayPool(
     private val scope: CoroutineScope,
     private val signer: () -> Signer?,
+    /** Data use and reachability per relay, shared by every pool so background checks count too. */
+    private val stats: RelayStats? = null,
 ) {
+    /** The last 30 days of Struthio's use of [url]. */
+    fun usage(url: String): RelayStats.Summary? = stats?.summary(url)
+
     private val relays = ConcurrentHashMap<String, Relay>()
     private val nextId = AtomicInteger()
     private val verified = object : LinkedHashMap<String, Boolean>(4096, 0.75f, true) {
@@ -152,6 +157,7 @@ class RelayPool(
         ws = WebSocket(
             url,
             onOpen = {
+                stats?.attempt(url, true)
                 sentAt = System.currentTimeMillis()
                 if (!ws.send("[\"REQ\",${quoteJson(id)},${filter.toJson()}]")) answer.complete(null)
             },
@@ -160,7 +166,11 @@ class RelayPool(
                 // A sign-in challenge can come before the request is even read; it isn't an answer.
                 if (type != null && type != "AUTH" && sentAt > 0) answer.complete(System.currentTimeMillis() - sentAt)
             },
-            onClosed = { answer.complete(null) },
+            onClosed = { error ->
+                if (sentAt == 0L && error != null) stats?.attempt(url, false)
+                answer.complete(null)
+            },
+            onTraffic = { down, up -> stats?.traffic(url, down, up) },
         )
         ws.connect()
         return try {
@@ -238,6 +248,7 @@ class RelayPool(
     fun activityStopped() {
         if (visible.decrementAndGet() > 0) return
         AppLog.add("app left")
+        stats?.flush()
         leaving = true
         pauseJob?.cancel()
         pauseJob = scope.launch {
@@ -286,6 +297,7 @@ class RelayPool(
     fun shutdown() {
         foreground = false
         relays.values.forEach { it.disconnect() }
+        stats?.flush()
     }
 
     fun clearProblems() {
@@ -493,7 +505,7 @@ class RelayPool(
                 if (retryJob?.isActive != true) retryLater(wait)
                 return
             }
-            val ws = WebSocket(url, onOpen = ::opened, onText = ::message, onClosed = ::closed)
+            val ws = WebSocket(url, onOpen = ::opened, onText = ::message, onClosed = ::closed, onTraffic = { down, up -> stats?.traffic(url, down, up) })
             socket = ws
             ws.connect()
         }
@@ -512,6 +524,7 @@ class RelayPool(
 
         private fun opened() {
             AppLog.add("$url connected")
+            stats?.attempt(url, true)
             synchronized(problems) { problems[url]?.removeAll { it.startsWith("connection:") } }
             val requests = synchronized(lock) {
                 open = true
@@ -559,6 +572,8 @@ class RelayPool(
                 // Only a connection that lasted counts as healthy. A relay that accepts and then
                 // drops us must back off, or every subscription gets resent every few seconds.
                 val lasted = open && now - openedAt > STABLE_MS
+                // A try that never got through. Being offline, leaving, or our own closing isn't the relay's doing.
+                if (!open && error != null && !leaving && !offline && !replaced) stats?.attempt(url, false)
                 // Everything up to now came in live, for subscriptions that had caught up.
                 caughtUp.keys.retainAll(subs.keys)
                 if (open) caughtUpHere.forEach { if (it in subs) caughtUp[it] = now / 1000 }

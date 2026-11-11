@@ -69,6 +69,7 @@ import app.struthio.nostr.net.Bech32Lnurl
 import app.struthio.nostr.net.AppLog
 import app.struthio.nostr.net.Http
 import app.struthio.nostr.net.RelayPool
+import app.struthio.nostr.net.RelayStats
 import app.struthio.nostr.net.Subscription
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -119,7 +120,11 @@ class Core(private val context: Context) {
     val prefs = context.getSharedPreferences("app", Context.MODE_PRIVATE)
     val imageDir = File(context.cacheDir, "images")
     private val relayInfoDir = File(context.cacheDir, "relays")
-    val pool = RelayPool(scope) { signer.value }
+    private val relayStats = RelayStats(
+        load = { prefs.getString("relay_stats", null) },
+        save = { prefs.edit().putString("relay_stats", it).apply() },
+    )
+    val pool = RelayPool(scope, { signer.value }, relayStats)
     val wallet = Wallet(this)
     val media = MediaUploader(this, context)
     private val previewDir = File(context.cacheDir, "previews")
@@ -1528,7 +1533,7 @@ class Core(private val context: Context) {
             if (prefs.contains("notify_since")) prefs.edit().putLong("notify_since", now).apply()
             return
         }
-        val checker = RelayPool(scope) { signer.value }
+        val checker = RelayPool(scope, { signer.value }, relayStats)
         checker.activityStarted()
         try {
             val answered = checker.query(

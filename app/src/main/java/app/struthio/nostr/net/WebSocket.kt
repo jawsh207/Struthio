@@ -40,6 +40,8 @@ class WebSocket(
     private val onText: (String) -> Unit,
     private val onClosed: (Throwable?) -> Unit,
     private val idleTimeoutMs: Int = 45_000,
+    /** Bytes in frames received and sent, for the relay list's data use. */
+    private val onTraffic: (down: Int, up: Int) -> Unit = { _, _ -> },
 ) {
     private val random = SecureRandom()
     private val writeLock = Any()
@@ -211,6 +213,7 @@ class WebSocket(
             if (length < 0 || length > MAX_MESSAGE) throw IOException("message too large")
             val payload = ByteArray(length.toInt())
             readFully(input, payload, payload.size)
+            onTraffic(2 + (if (length > 65535) 8 else if (length > 125) 2 else 0) + payload.size, 0)
             when (opcode) {
                 OP_TEXT, OP_BINARY, OP_CONTINUATION -> {
                     if (fin && message == null) {
@@ -271,6 +274,7 @@ class WebSocket(
             out.write(head, 0, n)
             out.write(masked)
             out.flush()
+            onTraffic(0, n + masked.size)
         }
     }
 
