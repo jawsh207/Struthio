@@ -38,9 +38,16 @@ class Subscription internal constructor(
      */
     internal fun requestSince(since: Long): String = requestFor(
         filters.map { f ->
-            if (f.ids != null) f else Filter(f.ids, f.authors, f.kinds, f.tags, maxOf(f.since ?: 0, since), f.until, f.limit, f.search)
+            // Gift wraps carry a made-up time up to two days back (NIP-59), so one that came in while
+            // we were away can look older than the moment we left. Those are asked for further back.
+            val from = if (f.kinds?.contains(Kind.GIFT_WRAP) == true) since - GIFT_WRAP_BACKDATE_S else since
+            if (f.ids != null) f else Filter(f.ids, f.authors, f.kinds, f.tags, maxOf(f.since ?: 0, from), f.until, f.limit, f.search)
         },
     )
+
+    private companion object {
+        const val GIFT_WRAP_BACKDATE_S = 2 * 86400L
+    }
 
     private fun requestFor(list: List<Filter>) = buildString {
         append("[\"REQ\",").append(quoteJson(id))

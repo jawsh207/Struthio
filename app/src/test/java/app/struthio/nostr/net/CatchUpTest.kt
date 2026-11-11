@@ -24,4 +24,10 @@ class CatchUpTest {
         val req = JSONArray(sub(Filter(ids = listOf("ab"))).requestSince(1_000))
         assertFalse(req.getJSONObject(2).has("since"))
     }
+
+    @Test
+    fun giftWrapsAreAskedForFurtherBack() {
+        val req = JSONArray(sub(Filter(kinds = listOf(1059), tags = mapOf("p" to listOf("ab")), since = 100)).requestSince(1_000_000))
+        assertEquals(1_000_000L - 2 * 86400, req.getJSONObject(2).getLong("since"))
+    }
 }

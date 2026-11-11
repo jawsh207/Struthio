@@ -707,7 +707,8 @@ class Core(private val context: Context) {
         sessionSubs += pool.subscribe(
             relays,
             listOf(Filter(kinds = listOf(Kind.GIFT_WRAP), tags = mapOf("p" to listOf(pubkey)), since = since)),
-            onDone = { url, ok -> if (ok) AppLog.add("$url inbox checked: ${found[url]?.get() ?: 0} messages") },
+            // Counted per check: a reconnect asks again, and its count starts over.
+            onDone = { url, ok -> if (ok) AppLog.add("$url inbox checked: ${found.remove(url)?.get() ?: 0} messages") },
             onEvent = { wrap, url ->
                 found.getOrPut(url) { AtomicInteger() }.incrementAndGet()
                 scope.launch { receiveWrap(wrap) }
