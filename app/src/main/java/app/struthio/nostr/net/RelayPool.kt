@@ -69,6 +69,9 @@ class RelayPool(
     /** Nothing connects until something is on screen, so a background wake-up opens no sockets. */
     @Volatile private var foreground = false
 
+    /** Whether sockets may be open now, with Struthio in front. */
+    val inForeground: Boolean get() = foreground
+
     /** Android cuts a backgrounded app's network within seconds, so nothing is retried until it's back. */
     @Volatile private var leaving = false
 

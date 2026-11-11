@@ -118,6 +118,9 @@ class RemoteSigner(
         }
 
         suspend fun request(method: String, params: List<String>, timeoutMs: Long = REQUEST_MS): String {
+            // In the background Struthio has no connections, so the signer can't be reached; say so now
+            // rather than after a long wait.
+            if (!pool.inForeground) throw UserError("Open Struthio to use your remote signer.")
             val id = Hex.encode(ByteArray(8).also { random.nextBytes(it) })
             val body = JSONObject().put("id", id).put("method", method).put("params", JSONArray(params))
             val draft = Draft(client.pubkey, nowSeconds(), Kind.NOSTR_CONNECT, listOf(listOf("p", remote)), Nip44.encrypt(body.toString(), conversation))
