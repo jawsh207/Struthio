@@ -61,6 +61,7 @@ import app.struthio.nostr.core.stripEmoji
 import app.struthio.nostr.core.tagsToJson
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.core.trustedNetwork
+import app.struthio.nostr.core.value
 import app.struthio.nostr.core.values
 import app.struthio.nostr.core.zapSplits
 import app.struthio.nostr.net.Bech32Lnurl
