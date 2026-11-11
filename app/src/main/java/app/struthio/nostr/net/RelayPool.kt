@@ -324,6 +324,10 @@ class RelayPool(
         @Volatile
         var signedIn = false
 
+        /** Open right now; read without the lock, to tell a dead relay from a dead network. */
+        @Volatile
+        var live = false
+
         /** Kept across reconnects, so a relay that can't take sign-ins isn't asked to on every one. */
         @Volatile
         var signInRefused = false
@@ -472,6 +476,7 @@ class RelayPool(
             synchronized(problems) { problems[url]?.removeAll { it.startsWith("connection:") } }
             val requests = synchronized(lock) {
                 open = true
+                live = true
                 openedAt = System.currentTimeMillis()
                 sent.clear()
                 afterReqs.clear()
@@ -520,6 +525,7 @@ class RelayPool(
                 if (open) caughtUpHere.forEach { if (it in subs) caughtUp[it] = now / 1000 }
                 caughtUpHere.clear()
                 open = false
+                live = false
                 socket = null
                 sent.clear()
                 afterReqs.clear()
@@ -546,6 +552,16 @@ class RelayPool(
                 if (notARelay || (message.startsWith("handshake refused: HTTP/1.1 4") && " 429" !in message)) {
                     failedUntil = now + REFUSED_MS
                     limitedUntil = now + REFUSED_MS
+                }
+                // A name that doesn't exist, while other relays are reachable, is a relay that's gone:
+                // it won't come back on another network either. Telling the two apart needs another
+                // relay open, so a network whose name lookups fail doesn't pause every relay.
+                if (!lasted && failures >= 2 && error is java.net.UnknownHostException && relays.values.any { it !== this && it.live }) {
+                    failedUntil = now + REFUSED_MS
+                    limitedUntil = now + REFUSED_MS
+                } else if (!lasted && failures >= DEAD_AFTER) {
+                    // Unreachable try after try: rest it longer, though a new network still clears this.
+                    failedUntil = now + REFUSED_MS
                 }
                 retry = current.isNotEmpty() && foreground && !leaving && !offline
                 if (replaced && foreground && (subs.isNotEmpty() || pending.isNotEmpty())) {
@@ -739,6 +755,9 @@ class RelayPool(
         const val IDLE_CLOSE_MS = 45_000L
         const val PAUSE_GRACE_MS = 20_000L
         const val MAX_BACKOFF_S = 300L
+
+        /** Failed connections in a row after which a relay is left alone for a while. */
+        const val DEAD_AFTER = 6
         const val SETTLE_MS = 4_000L
 
         /** Slack in catch-up requests, for relays whose clocks run behind. */

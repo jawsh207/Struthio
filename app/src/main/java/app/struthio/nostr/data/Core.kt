@@ -884,11 +884,15 @@ class Core(private val context: Context) {
         if (store.latest(pubkey, Kind.METADATA) == null && !safeToStartList()) {
             throw UserError("Your profile has not been found yet, so saving now could replace it. Run the account check in Settings.")
         }
-        val o = runCatching { JSONObject(store.latest(pubkey, Kind.METADATA)?.content ?: "{}") }.getOrDefault(JSONObject())
+        val current = store.latest(pubkey, Kind.METADATA)
+        val o = runCatching { JSONObject(current?.content ?: "{}") }.getOrDefault(JSONObject())
+        val before = o.toString()
         fields.forEach { (key, value) -> if (value.isBlank()) o.remove(key) else o.put(key, value.trim()) }
         // Deprecated field names are dropped when a profile is rewritten (NIP-24).
         o.remove("displayName")
         o.remove("username")
+        // Nothing changed, as when only the status or linked accounts were edited: nothing to send.
+        if (current != null && o.toString() == before) return
         publish(Draft(pubkey, nowSeconds(), Kind.METADATA, emptyList(), o.toString()))
     }
 
