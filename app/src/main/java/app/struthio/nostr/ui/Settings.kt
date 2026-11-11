@@ -13,6 +13,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.runtime.mutableStateListOf
 import app.struthio.nostr.core.Identity
+import app.struthio.nostr.core.gistId
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -557,7 +558,7 @@ private fun LinkAccountDialog(npub: String, onAdd: (Identity) -> Unit, onDismiss
             TextButton(
                 {
                     val normalized = name.trim().removePrefix("@").let { if (platform == "mastodon") it else it.lowercase() }
-                    onAdd(Identity(platform, normalized, proof.trim()))
+                    onAdd(Identity(platform, normalized, if (platform == "github") gistId(proof) else proof.trim()))
                     onDismiss()
                 },
                 enabled = name.isNotBlank() && proof.isNotBlank(),

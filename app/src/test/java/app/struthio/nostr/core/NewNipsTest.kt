@@ -180,6 +180,16 @@ class NewNipsTest {
         assertEquals(listOf("i", "github:semisol", "9721ce4ee4fceb91c9711ca2a6c9a5ab"), list[0].tag())
     }
 
+    @Test
+    fun pastedGistAddressesBecomeIds() {
+        assertEquals("9721ce4e", gistId("https://gist.github.com/semisol/9721ce4e"))
+        assertEquals("9721ce4e", gistId(" gist.github.com/semisol/9721ce4e/ "))
+        assertEquals("9721ce4e", gistId("https://gist.github.com/semisol/9721ce4e#file-proof-txt"))
+        assertEquals("9721ce4e", gistId("9721ce4e"))
+        val e = event(Kind.IDENTITIES, listOf(listOf("i", "github:semisol", "https://gist.github.com/semisol/9721ce4e")))
+        assertEquals("9721ce4e", parseIdentities(e)[0].proof)
+    }
+
     // NIP-46
 
     @Test

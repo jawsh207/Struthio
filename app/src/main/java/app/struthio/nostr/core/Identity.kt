@@ -70,6 +70,11 @@ fun parseIdentities(event: Event): List<Identity> {
         if (at <= 0 || at == claim.length - 1) return@mapNotNull null
         val platform = claim.substring(0, at).lowercase()
         if (!platform.all { it in 'a'..'z' || it in '0'..'9' || it in "._-/" }) return@mapNotNull null
-        Identity(platform, claim.substring(at + 1).trim(), tag[2].trim())
+        val proof = tag[2].trim().let { if (platform == "github") gistId(it) else it }
+        Identity(platform, claim.substring(at + 1).trim(), proof)
     }.distinctBy { it.platform to it.name.lowercase() }
 }
+
+/** A gist's ID, also from its whole address (`https://gist.github.com/name/ID`), which people often paste. */
+fun gistId(text: String): String =
+    text.trim().substringBefore('?').substringBefore('#').trimEnd('/').substringAfterLast('/').removeSuffix(".git")

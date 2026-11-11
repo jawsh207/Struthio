@@ -361,7 +361,8 @@ private fun LinkedAccounts(pubkey: String, identities: List<Identity>) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         identities.forEach { identity ->
             val verified by produceState(false, pubkey, identity) { value = core.verifyIdentity(pubkey, identity) }
-            val target = identity.profileUrl ?: identity.proofUrl
+            // The proof, so anyone can see the claim for themselves.
+            val target = identity.proofUrl ?: identity.profileUrl
             AssistChip(
                 onClick = { target?.let { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } } },
                 label = { Text("${identity.label} · ${identity.name}", maxLines = 1, overflow = TextOverflow.Ellipsis) },

@@ -924,15 +924,27 @@ class Core(private val context: Context) {
      * asks. The other platforms need a login to read their posts, so they're shown unchecked.
      */
     suspend fun verifyIdentity(pubkey: String, identity: Identity): Boolean = withContext(Dispatchers.IO) {
-        if (identity.platform != "github" || !identity.proof.all { it.isLetterOrDigit() }) return@withContext false
-        runCatching {
-            val gist = Http.json("https://api.github.com/gists/${identity.proof}")
-            val owner = gist.optJSONObject("owner")?.optString("login").orEmpty()
-            val files = gist.optJSONObject("files") ?: return@runCatching false
-            val npub = Nip19.npub(pubkey)
-            owner.equals(identity.name, ignoreCase = true) &&
-                files.keys().asSequence().any { files.optJSONObject(it)?.optString("content").orEmpty().contains(npub) }
-        }.getOrDefault(false)
+        if (identity.platform != "github") return@withContext false
+        if (identity.proof.isEmpty() || !identity.proof.all { it.isLetterOrDigit() }) {
+            AppLog.add("GitHub link for ${identity.name}: \"${identity.proof}\" isn't a gist ID")
+            return@withContext false
+        }
+        val gist = try {
+            Http.json("https://api.github.com/gists/${identity.proof}")
+        } catch (e: Exception) {
+            AppLog.add("GitHub link for ${identity.name}: couldn't read the gist (${e.message})")
+            return@withContext false
+        }
+        val owner = gist.optJSONObject("owner")?.optString("login").orEmpty()
+        val files = gist.optJSONObject("files")
+        val npub = Nip19.npub(pubkey)
+        val hasKey = files != null && files.keys().asSequence().any { files.optJSONObject(it)?.optString("content").orEmpty().contains(npub) }
+        when {
+            !owner.equals(identity.name, ignoreCase = true) -> AppLog.add("GitHub link for ${identity.name}: the gist belongs to \"$owner\"")
+            !hasKey -> AppLog.add("GitHub link for ${identity.name}: the gist doesn't contain this account's npub")
+            else -> return@withContext true
+        }
+        false
     }
 
     /** Sets your general status; empty clears it (NIP-38). It can be set to end after [hours]. */
