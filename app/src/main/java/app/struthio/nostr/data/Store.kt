@@ -256,20 +256,25 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4
     }
 
     fun followingFeed(limit: Int, until: Long): List<Event> = events(
-        """SELECT $COLUMNS FROM events WHERE kind IN (1,6,1068) AND root IS NULL AND created_at < ?
+        """SELECT $COLUMNS FROM events WHERE kind IN ($POST_KINDS) AND root IS NULL AND created_at < ?
            AND pubkey IN (SELECT pubkey FROM follows) ORDER BY created_at DESC LIMIT ?""",
         arrayOf(until.toString(), limit.toString()),
     )
 
     fun authorNotes(pubkey: String, limit: Int, until: Long): List<Event> = events(
-        "SELECT $COLUMNS FROM events WHERE pubkey=? AND kind IN (1,6,1068) AND created_at < ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT $COLUMNS FROM events WHERE pubkey=? AND kind IN ($POST_KINDS) AND created_at < ? ORDER BY created_at DESC LIMIT ?",
         arrayOf(pubkey, until.toString(), limit.toString()),
     )
 
-    fun thread(root: String): List<Event> = events(
-        "SELECT $COLUMNS FROM events WHERE (id=? OR root=?) AND kind IN (1,1111,1068) ORDER BY created_at",
-        arrayOf(root, root),
+    /** A thread: its root and replies. An article or editable video is also found by its address. */
+    fun thread(root: String, address: String? = null): List<Event> = events(
+        "SELECT $COLUMNS FROM events WHERE (id=? OR root=? OR root=?) AND kind IN ($THREAD_KINDS) ORDER BY created_at",
+        arrayOf(root, root, address ?: root),
     )
+
+    /** The current version of an addressable event, if it's cached. */
+    fun address(kind: Int, pubkey: String, d: String): Event? =
+        events("SELECT $COLUMNS FROM events WHERE kind=? AND pubkey=? AND d=?", arrayOf(kind.toString(), pubkey, d)).firstOrNull()
 
     fun votes(poll: String): List<Event> = events(
         "SELECT $COLUMNS FROM events WHERE kind=1018 AND id IN (SELECT id FROM refs WHERE name='poll' AND value=?)",
@@ -551,6 +556,10 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4
 
     private companion object {
         const val COLUMNS = "id, pubkey, created_at, kind, tags, content, sig"
+        /** Kinds shown as posts in feeds: notes, boosts, pictures, videos, polls and articles. */
+        const val POST_KINDS = "1,6,20,21,22,1068,30023,34235,34236"
+        const val THREAD_KINDS = "1,20,21,22,1068,1111,30023,34235,34236"
+
         val NOTIFYING = setOf(Kind.NOTE, Kind.COMMENT, Kind.REPOST, Kind.GENERIC_REPOST, Kind.REACTION, Kind.ZAP_RECEIPT)
     }
 }

@@ -18,6 +18,7 @@ import app.struthio.nostr.core.FileCipher
 import app.struthio.nostr.core.FileMessage
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Hex
+import app.struthio.nostr.core.addressOf
 import app.struthio.nostr.core.KeyBackup
 import app.struthio.nostr.core.Keys
 import app.struthio.nostr.core.Kind
@@ -1077,20 +1078,53 @@ class Core(private val context: Context) {
 
     /** The thread a note belongs to: its root, then everything replying to it. */
     suspend fun loadThread(event: Event): String = withContext(Dispatchers.IO) {
-        val root = threadRef(event).root ?: event.id
         val ref = threadRef(event)
-        if (ref.root != null) fetchEvent(ref.root, author = ref.rootAuthor)
+        // A comment naming its root only by address: find that article or video first.
+        val rootEvent = when {
+            ref.root == null -> event
+            ref.root.count { it == ':' } >= 2 -> fetchAddress(ref.root)
+            else -> fetchEvent(ref.root, author = ref.rootAuthor)
+        }
+        val root = rootEvent?.id ?: ref.root ?: event.id
+        val address = rootEvent?.takeIf { Kind.isAddressable(it.kind) }?.let(::addressOf)
         val relays = readRelays() + DEFAULT_RELAYS + relaysOf(event.pubkey)?.write.orEmpty() + relaysOf(event.pubkey)?.read.orEmpty()
         pool.query(
             relays.take(8).toSet(),
-            listOf(
+            listOfNotNull(
                 Filter(kinds = listOf(Kind.NOTE), tags = mapOf("e" to listOf(root)), limit = 300),
                 Filter(kinds = listOf(Kind.COMMENT), tags = mapOf("E" to listOf(root)), limit = 300),
+                address?.let { Filter(kinds = listOf(Kind.COMMENT), tags = mapOf("A" to listOf(it)), limit = 300) },
             ),
             onEvent = ::ingest,
         )
         root
     }
+
+    /** An addressable event (article, editable video) from its `kind:pubkey:d` address. */
+    suspend fun fetchAddress(address: String, hints: List<String> = emptyList()): Event? {
+        val parts = address.split(':', limit = 3)
+        val kind = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val author = parts.getOrNull(1)?.takeIf(Hex::isKey) ?: return null
+        return fetchAddress(kind, author, parts.getOrNull(2).orEmpty(), hints)
+    }
+
+    suspend fun fetchAddress(kind: Int, author: String, d: String, hints: List<String> = emptyList()): Event? =
+        withContext(Dispatchers.IO) {
+            val relays = hints.mapNotNull(::normalizeRelay).toMutableSet()
+            relaysOf(author)?.write?.let(relays::addAll)
+            relays += readRelays()
+            relays += DEFAULT_RELAYS
+            relays -= lookupRelays().toSet()
+            var newest: Event? = store.address(kind, author, d)
+            pool.query(
+                relays.take(8).toSet(),
+                listOf(Filter(authors = listOf(author), kinds = listOf(kind), tags = mapOf("d" to listOf(d)), limit = 1)),
+            ) { e, relay ->
+                ingest(e, relay)
+                synchronized(this@Core) { if ((newest?.createdAt ?: 0) < e.createdAt) newest = e }
+            }
+            newest
+        }
 
     /** Who an account follows, from its kind 3 list, without keeping other people's lists in the cache. */
     suspend fun followingOf(pubkey: String): List<String> = withContext(Dispatchers.IO) {

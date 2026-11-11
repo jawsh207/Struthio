@@ -3,6 +3,7 @@ package app.struthio.nostr.data
 import app.struthio.nostr.core.Event
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Kind
+import app.struthio.nostr.core.addressOf
 import app.struthio.nostr.core.nowSeconds
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.core.values
@@ -35,7 +36,8 @@ class Feed(private val core: Core, private val source: FeedSource) {
     private var coverage: Map<String, Set<String>> = emptyMap()
     private var moreRunning = false
 
-    private val kinds = listOf(Kind.NOTE, Kind.REPOST, Kind.POLL)
+    /** Notes and polls, picture and video posts, articles, and boosts of them. */
+    private val kinds = Kind.POSTS + Kind.REPOST
 
     /** The trusted network applies to discovery feeds only, never to replies or notifications. */
     private val filtered: Boolean
@@ -126,7 +128,18 @@ class Feed(private val core: Core, private val source: FeedSource) {
         val keepsReplies = source is FeedSource.Author || source is FeedSource.Search || source == FeedSource.Bookmarks
         if (!keepsReplies && threadRef(event).root != null) return
         if (filtered && event.pubkey !in core.trustedNow()) return
-        synchronized(byId) { byId.putIfAbsent(event.id, event) }
+        synchronized(byId) {
+            // An edited article or video replaces the version already listed.
+            if (Kind.isAddressable(event.kind)) {
+                val address = addressOf(event)
+                val older = byId.values.firstOrNull { Kind.isAddressable(it.kind) && it.id != event.id && addressOf(it) == address }
+                if (older != null) {
+                    if (older.createdAt >= event.createdAt) return
+                    byId.remove(older.id)
+                }
+            }
+            byId.putIfAbsent(event.id, event)
+        }
     }
 
     private fun scheduleFlush() {

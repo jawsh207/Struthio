@@ -130,6 +130,7 @@ fun App(core: Core, deepLink: MutableStateFlow<String?>) {
             when (val entity = Nip19.decode(target)) {
                 is Entity.Profile -> nav.push(Screen.Profile(entity.pubkey))
                 is Entity.Note -> nav.push(Screen.Thread(entity.id, entity.relays, entity.author))
+                is Entity.Address -> core.fetchAddress(entity.kind, entity.author, entity.identifier, entity.relays)?.let { nav.push(Screen.Thread(it.id)) }
                 else -> Unit
             }
         }

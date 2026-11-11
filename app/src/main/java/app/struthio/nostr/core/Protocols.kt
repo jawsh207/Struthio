@@ -11,9 +11,10 @@ data class ThreadRef(val root: String?, val parent: String?, val rootAuthor: Str
 
 fun threadRef(event: Event): ThreadRef {
     if (event.kind == Kind.COMMENT) {
-        val root = event.tags.first("E")
-        val parent = event.tags.first("e")
-        return ThreadRef(root?.get(1), parent?.get(1) ?: root?.get(1), event.tags.value("P"), event.tags.value("p"))
+        // A comment on an article or editable video may name its root only by address (A).
+        val root = event.tags.first("E")?.get(1) ?: event.tags.first("A")?.get(1)
+        val parent = event.tags.first("e")?.get(1) ?: event.tags.first("a")?.get(1)
+        return ThreadRef(root, parent ?: root, event.tags.value("P"), event.tags.value("p"))
     }
     if (event.kind != Kind.NOTE) return ThreadRef(null, null)
     val eTags = event.tags.filter { it.size >= 2 && it[0] == "e" && Hex.isKey(it[1]) }
@@ -47,10 +48,13 @@ fun replyTags(parent: Event, hint: String): Pair<Int, Tags> {
         parent.tags.filter { it.isNotEmpty() && it[0] in setOf("E", "A", "I", "K", "P") }.forEach { tags += it }
     } else {
         tags += listOf("E", parent.id, hint, parent.pubkey)
+        // NIP-22: an addressable root, like an article, is also named by its address.
+        if (Kind.isAddressable(parent.kind)) tags += listOf("A", addressOf(parent), hint)
         tags += listOf("K", parent.kind.toString())
         tags += listOf("P", parent.pubkey, hint)
     }
     tags += listOf("e", parent.id, hint, parent.pubkey)
+    if (Kind.isAddressable(parent.kind)) tags += listOf("a", addressOf(parent), hint)
     tags += listOf("k", parent.kind.toString())
     tags += listOf("p", parent.pubkey, hint)
     return Kind.COMMENT to tags
@@ -619,7 +623,7 @@ private val VIDEO_EXT = Regex(
     RegexOption.IGNORE_CASE,
 )
 
-private val STREAM_TYPES = setOf("application/x-mpegurl", "application/vnd.apple.mpegurl", "application/dash+xml")
+internal val STREAM_TYPES = setOf("application/x-mpegurl", "application/vnd.apple.mpegurl", "application/dash+xml")
 
 /** Videos in a note: imeta type first, then file extension. */
 fun noteVideos(event: Event): List<String> {

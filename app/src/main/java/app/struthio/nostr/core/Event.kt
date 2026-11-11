@@ -33,6 +33,35 @@ object Kind {
     const val NWC_REQUEST = 23194
     const val NWC_RESPONSE = 23195
 
+    /** NIP-68 picture post. */
+    const val PICTURE = 20
+
+    /** NIP-71 video posts: normal and short, each also in an editable (addressable) form. */
+    const val VIDEO = 21
+    const val SHORT_VIDEO = 22
+    const val EDITABLE_VIDEO = 34235
+    const val EDITABLE_SHORT_VIDEO = 34236
+
+    /** NIP-23 article. */
+    const val ARTICLE = 30023
+
+    /** NIP-38 user status. */
+    const val STATUS = 30315
+
+    /** NIP-39 linked accounts. */
+    const val IDENTITIES = 10011
+
+    /** NIP-62 request to vanish. */
+    const val VANISH = 62
+
+    /** NIP-46 remote signing messages. */
+    const val NOSTR_CONNECT = 24133
+
+    val VIDEOS = setOf(VIDEO, SHORT_VIDEO, EDITABLE_VIDEO, EDITABLE_SHORT_VIDEO)
+
+    /** Everything that shows as a post of its own in feeds. */
+    val POSTS = listOf(NOTE, POLL, PICTURE, VIDEO, SHORT_VIDEO, EDITABLE_VIDEO, EDITABLE_SHORT_VIDEO, ARTICLE)
+
     fun isReplaceable(kind: Int) = kind == METADATA || kind == FOLLOWS || kind in 10000..19999
     fun isAddressable(kind: Int) = kind in 30000..39999
     fun isEphemeral(kind: Int) = kind in 20000..29999

@@ -78,6 +78,9 @@ import app.struthio.nostr.core.emojiMap
 import app.struthio.nostr.core.noteImages
 import app.struthio.nostr.core.noteVideos
 import app.struthio.nostr.core.videoThumbnails
+import app.struthio.nostr.core.pictures
+import app.struthio.nostr.core.titleOf
+import app.struthio.nostr.core.videoPost
 import app.struthio.nostr.core.parseContent
 import app.struthio.nostr.core.parsePoll
 import app.struthio.nostr.core.repostedEvent
@@ -194,7 +197,7 @@ private class Body(
     val images: List<Media>,
     val videos: List<String>,
     val thumbnails: Map<String, String>,
-    val quotes: List<Entity.Note>,
+    val quotes: List<Entity>,
     val preview: String?,
     val emoji: Map<String, String>,
     val poll: Poll?,
@@ -220,6 +223,10 @@ fun NoteBody(event: Event, detail: Boolean = false, inQuote: Boolean = false) {
         }
         return
     }
+    if (event.kind == Kind.ARTICLE) {
+        if (detail) ArticleBody(event) else ArticleCard(event, inQuote)
+        return
+    }
     NoteContent(event, detail, inQuote)
 }
 
@@ -229,14 +236,15 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
     val nav = LocalNav.current
     val context = LocalContext.current
     val body = remember(event.id) {
-        val images = noteImages(event)
-        val videos = noteVideos(event)
+        // A picture post's pictures come from its imeta tags; a video post's video is shown on its own.
+        val images = ((if (event.kind == Kind.PICTURE) pictures(event) else emptyList()) + noteImages(event)).distinctBy { it.url }
+        val videos = if (event.kind in Kind.VIDEOS) emptyList() else noteVideos(event)
         val mediaUrls = images.map { it.url }.toSet() + videos
         val parts = parseContent(event.content)
-        val quotes = parts.filterIsInstance<Part.Mention>().mapNotNull { it.entity as? Entity.Note }
+        val quotes = parts.filterIsInstance<Part.Mention>().map { it.entity }.filter { it is Entity.Note || it is Entity.Address }
         Body(
             parts.filterNot {
-                (it is Part.Link && it.url in mediaUrls) || (it is Part.Mention && it.entity is Entity.Note)
+                (it is Part.Link && it.url in mediaUrls) || (it is Part.Mention && (it.entity is Entity.Note || it.entity is Entity.Address))
             },
             images,
             videos,
@@ -280,6 +288,16 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
         body.parts.filterIsInstance<Part.Mention>().mapNotNull { (it.entity as? Entity.Profile)?.pubkey }
     }
     LaunchedEffect(mentions) { mentions.forEach(core::wantProfile) }
+    val titled = event.kind == Kind.PICTURE || event.kind in Kind.VIDEOS
+    if (titled) titleOf(event)?.let {
+        Text(
+            it,
+            modifier = Modifier.padding(top = if (inQuote) 4.dp else 12.dp),
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = if (detail) Int.MAX_VALUE else 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
     val trimmed = text.length > 0 && text.text.isNotBlank()
     if (trimmed) {
         Text(
@@ -287,12 +305,15 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
             modifier = Modifier.padding(top = if (inQuote) 4.dp else 12.dp),
             style = if (inQuote) TextStyle(fontSize = 14.sp, lineHeight = 20.sp) else TextStyle(fontSize = 15.sp, lineHeight = 22.sp),
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = if (detail) Int.MAX_VALUE else if (inQuote) 5 else 16,
+            maxLines = if (detail) Int.MAX_VALUE else if (inQuote) 5 else if (titled) 4 else 16,
             overflow = TextOverflow.Ellipsis,
             inlineContent = emojiImages(body.emoji),
         )
     } else {
         Spacer(Modifier.height(4.dp))
+    }
+    if (event.kind in Kind.VIDEOS && !inQuote) videoPost(event)?.let {
+        VideoCard(it.url, it.thumbnail, aspect = if (it.portrait) 4f / 5f else 16f / 9f, seconds = it.seconds)
     }
     body.poll?.let { PollCard(event, it) }
     body.invoices.forEach { InvoiceCard(it) }
@@ -324,15 +345,27 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
 }
 
 @Composable
-private fun QuoteCard(ref: Entity.Note) {
+private fun QuoteCard(ref: Entity) {
     val core = LocalCore.current
     val nav = LocalNav.current
-    val quoted by produceState<Event?>(core.store.event(ref.id), ref.id) {
-        if (value == null) value = core.fetchEvent(ref.id, ref.relays, ref.author)
+    // A note by id, or an article or editable video by address.
+    val quoted by produceState(
+        when (ref) {
+            is Entity.Note -> core.store.event(ref.id)
+            is Entity.Address -> core.store.address(ref.kind, ref.author, ref.identifier)
+            else -> null
+        },
+        ref,
+    ) {
+        if (value == null) value = when (ref) {
+            is Entity.Note -> core.fetchEvent(ref.id, ref.relays, ref.author)
+            is Entity.Address -> core.fetchAddress(ref.kind, ref.author, ref.identifier, ref.relays)
+            else -> null
+        }
     }
     val event = quoted
     Surface(
-        onClick = { nav.push(Screen.Thread(ref.id)) },
+        onClick = { event?.let { nav.push(Screen.Thread(it.id)) } ?: (ref as? Entity.Note)?.let { nav.push(Screen.Thread(it.id)) } },
         modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,

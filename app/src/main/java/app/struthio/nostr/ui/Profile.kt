@@ -61,6 +61,7 @@ import app.struthio.nostr.data.Core
 import app.struthio.nostr.data.Feed
 import app.struthio.nostr.data.FeedSource
 import app.struthio.nostr.data.roomKey
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
 fun Context.copy(text: String) {
@@ -231,6 +232,7 @@ fun rememberPeople(query: String): List<String> {
 fun SearchScreen() {
     val core = LocalCore.current
     val nav = LocalNav.current
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf("") }
     val feed = remember(submitted) { submitted.takeIf { it.isNotBlank() }?.let { Feed(core, FeedSource.Search(it)) } }
@@ -248,6 +250,9 @@ fun SearchScreen() {
             else -> when (val entity = Nip19.decode(text)) {
                 is Entity.Profile -> nav.push(Screen.Profile(entity.pubkey))
                 is Entity.Note -> nav.push(Screen.Thread(entity.id, entity.relays, entity.author))
+                is Entity.Address -> scope.launch {
+                    core.fetchAddress(entity.kind, entity.author, entity.identifier, entity.relays)?.let { nav.push(Screen.Thread(it.id)) }
+                }
                 else -> submitted = text
             }
         }

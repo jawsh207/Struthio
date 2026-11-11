@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.struthio.nostr.core.Event
+import app.struthio.nostr.core.Kind
+import app.struthio.nostr.core.addressOf
 import app.struthio.nostr.core.threadRef
 import app.struthio.nostr.data.FeedSource
 import app.struthio.nostr.data.Upload
@@ -123,7 +125,12 @@ fun ThreadScreen(screen: Screen.Thread) {
         focus?.let { value = core.loadThread(it) }
     }
     val rootId = root ?: focus?.let { threadRef(it).root ?: it.id }
-    val events by liveQuery(emptyList<Event>(), rootId) { rootId?.let(core.store::thread).orEmpty() }
+    val events by liveQuery(emptyList<Event>(), rootId) {
+        rootId?.let { id ->
+            // Comments on an article or editable video may point at its address instead of its id.
+            core.store.thread(id, core.store.event(id)?.takeIf { Kind.isAddressable(it.kind) }?.let(::addressOf))
+        }.orEmpty()
+    }
     val notes = remember(events, rootId) { rootId?.let { ordered(events, it) }.orEmpty() }
     val draft = remember { NoteDraft() }
     var sending by remember { mutableStateOf(false) }
@@ -145,7 +152,7 @@ fun ThreadScreen(screen: Screen.Thread) {
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        BackBar("Thread")
+        BackBar(if (focus?.kind == Kind.ARTICLE) "Article" else "Thread")
         if (focus == null) {
             Loading(Modifier.fillMaxWidth().weight(1f))
         } else {

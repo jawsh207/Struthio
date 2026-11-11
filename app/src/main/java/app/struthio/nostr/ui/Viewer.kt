@@ -61,6 +61,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.struthio.nostr.core.LinkInfo
+import app.struthio.nostr.core.formatDuration
 
 @Composable
 private fun ZoomableImage(url: String, onDismiss: () -> Unit) {
@@ -134,7 +135,7 @@ fun ImageViewer(urls: List<String>, start: Int, onClose: () -> Unit) {
  * or, with link previews on, a still taken from the start of the video.
  */
 @Composable
-fun VideoCard(url: String, thumbnail: String? = null) {
+fun VideoCard(url: String, thumbnail: String? = null, aspect: Float = 16f / 9f, seconds: Double? = null) {
     val context = LocalContext.current
     val core = LocalCore.current
     val frame by produceState<android.graphics.Bitmap?>(null, url, thumbnail) {
@@ -150,7 +151,7 @@ fun VideoCard(url: String, thumbnail: String? = null) {
         Unit
     }
     Box(
-        Modifier.padding(top = 10.dp).fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(20.dp)).background(Color.Black)
+        Modifier.padding(top = 10.dp).fillMaxWidth().aspectRatio(aspect).clip(RoundedCornerShape(20.dp)).background(Color.Black)
             // A tap anywhere on the video belongs to the video, never to the note it's in.
             .clickable(interactionSource = null, indication = null) { if (!playing && !failed) playing = true },
         contentAlignment = Alignment.Center,
@@ -197,6 +198,18 @@ fun VideoCard(url: String, thumbnail: String? = null) {
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB3000000), contentColor = Color.White),
                 ) { Icon(Icons.Rounded.PlayArrow, "Play video", Modifier.size(36.dp)) }
+                seconds?.let {
+                    Text(
+                        formatDuration(it),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(10.dp)
+                            .background(Color(0xB3000000), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
             }
         }
     }
