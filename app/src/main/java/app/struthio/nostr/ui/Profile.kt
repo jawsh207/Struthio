@@ -1,5 +1,15 @@
 package app.struthio.nostr.ui
 
+import android.net.Uri
+import android.content.Intent
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.AssistChip
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.MusicNote
+import app.struthio.nostr.core.Identity
+import app.struthio.nostr.core.Status
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -90,6 +100,8 @@ fun ProfileScreen(pubkey: String) {
     var showQr by remember { mutableStateOf(false) }
     val followingList by produceState<List<String>?>(null, pubkey, follows) { value = core.followingOf(pubkey) }
     val followerCount by produceState<Long?>(null, pubkey) { value = core.followerCount(pubkey) }
+    val statuses by produceState(emptyList<Status>(), pubkey) { value = core.statusesOf(pubkey) }
+    val identities by produceState(emptyList<Identity>(), pubkey) { value = core.identitiesOf(pubkey) }
 
     Column(Modifier.fillMaxSize()) {
         BackBar(core.displayName(pubkey)) {
@@ -126,11 +138,13 @@ fun ProfileScreen(pubkey: String) {
                         profile?.nip05?.let { Text(it.removePrefix("_@"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
+                statuses.forEach { StatusLine(it) }
                 profile?.about?.takeIf { it.isNotBlank() }?.let { about ->
                     val text = replaceInvoices(about) { "" }.trim()
                     if (text.isNotEmpty()) EmojiText(text, profile.emoji, style = MaterialTheme.typography.bodyMedium)
                     invoicesIn(about).forEach { InvoiceCard(it) }
                 }
+                if (identities.isNotEmpty()) LinkedAccounts(pubkey, identities)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton({ nav.push(Screen.People(pubkey, followers = false)) }) {
                         Text("${followingList?.size?.toLong()?.let(::compact) ?: "–"} following")
@@ -307,4 +321,56 @@ fun PersonRow(core: Core, pubkey: String, shape: Shape, onClick: () -> Unit) {
         supportingContent = core.profiles[pubkey]?.nip05?.let { { Text(it) } },
         leadingContent = { Avatar(pubkey, 40.dp) },
     )
+}
+
+/** NIP-38: a status under someone's name; a music one gets a note. Tapping opens its link. */
+@Composable
+private fun StatusLine(status: Status) {
+    val context = LocalContext.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.then(
+            status.link?.let { link ->
+                Modifier.clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) } }
+            } ?: Modifier,
+        ),
+    ) {
+        Icon(
+            if (status.music) Icons.Rounded.MusicNote else Icons.Rounded.ChatBubble,
+            null,
+            Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            status.text,
+            modifier = Modifier.padding(start = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (status.link != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** NIP-39: accounts elsewhere. GitHub ones are checked against their gist; the tick means it held. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LinkedAccounts(pubkey: String, identities: List<Identity>) {
+    val core = LocalCore.current
+    val context = LocalContext.current
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        identities.forEach { identity ->
+            val verified by produceState(false, pubkey, identity) { value = core.verifyIdentity(pubkey, identity) }
+            val target = identity.profileUrl ?: identity.proofUrl
+            AssistChip(
+                onClick = { target?.let { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } } },
+                label = { Text("${identity.label} · ${identity.name}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                trailingIcon = if (verified) {
+                    { Icon(Icons.Rounded.Verified, "Proof checked", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) }
+                } else {
+                    null
+                },
+            )
+        }
+    }
 }

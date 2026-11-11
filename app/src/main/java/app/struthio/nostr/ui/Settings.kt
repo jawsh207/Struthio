@@ -1,5 +1,11 @@
 package app.struthio.nostr.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.runtime.mutableStateListOf
+import app.struthio.nostr.core.Identity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -401,6 +407,12 @@ fun EditProfileScreen() {
     var nip05 by remember { mutableStateOf(current.optString("nip05")) }
     var lud16 by remember { mutableStateOf(current.optString("lud16")) }
     var saving by remember { mutableStateOf(false) }
+    // NIP-38 status and NIP-39 linked accounts live in their own events, loaded from the network.
+    val loadedStatus by produceState<String?>(null) { value = core.statusesOf(me).firstOrNull { !it.music }?.text.orEmpty() }
+    val loadedIdentities by produceState<List<Identity>?>(null) { value = core.identitiesOf(me) }
+    var status by remember(loadedStatus) { mutableStateOf(loadedStatus.orEmpty()) }
+    val identities = remember(loadedIdentities) { mutableStateListOf<Identity>().apply { addAll(loadedIdentities.orEmpty()) } }
+    var addingAccount by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar("Edit profile")
@@ -414,6 +426,31 @@ fun EditProfileScreen() {
                 OutlinedTextField(picture, { picture = it }, label = { Text("Picture URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(nip05, { nip05 = it }, label = { Text("Nostr address (NIP-05)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(lud16, { lud16 = it }, label = { Text("Lightning address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    status,
+                    { status = it },
+                    label = { Text("Status") },
+                    placeholder = { Text("What are you up to?") },
+                    supportingText = { Text("Shown under your name. Leave empty to clear it.") },
+                    singleLine = true,
+                    enabled = loadedStatus != null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Linked accounts", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                if (loadedIdentities == null) {
+                    Text("Loading…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    identities.forEach { identity ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${identity.label} · ${identity.name}", style = MaterialTheme.typography.bodyMedium)
+                                Text(identity.proof, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
+                            IconButton({ identities.remove(identity) }) { Icon(Icons.Rounded.Close, "Remove ${identity.label} account") }
+                        }
+                    }
+                    OutlinedButton({ addingAccount = true }) { Text("Link an account") }
+                }
                 Button(
                     onClick = {
                         saving = true
@@ -425,6 +462,8 @@ fun EditProfileScreen() {
                                         "picture" to picture, "nip05" to nip05, "lud16" to lud16,
                                     ),
                                 )
+                                if (loadedStatus != null && status.trim() != loadedStatus) core.setStatus(status)
+                                if (loadedIdentities != null && identities.toList() != loadedIdentities) core.setIdentities(identities.toList())
                                 nav.say("Profile saved")
                                 nav.pop()
                             } finally {
@@ -436,6 +475,79 @@ fun EditProfileScreen() {
                 ) { Text(if (saving) "Saving…" else "Save profile") }
         }
     }
+    if (addingAccount) LinkAccountDialog(Nip19.npub(me), { identities += it }) { addingAccount = false }
+}
+
+/**
+ * Adds a NIP-39 linked account. The proof is a post or gist on that account holding the text below,
+ * so others can check the account is really yours.
+ */
+@Composable
+private fun LinkAccountDialog(npub: String, onAdd: (Identity) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var platform by remember { mutableStateOf("github") }
+    var name by remember { mutableStateOf("") }
+    var proof by remember { mutableStateOf("") }
+    var choosing by remember { mutableStateOf(false) }
+    val proofHint = when (platform) {
+        "github" -> "Gist ID"
+        "twitter" -> "Post ID"
+        "mastodon" -> "Post ID"
+        "bluesky" -> "Post record key"
+        "telegram" -> "channel/message"
+        "discord" -> "server/channel/message IDs"
+        else -> "Proof"
+    }
+    val nameHint = when (platform) {
+        "mastodon" -> "instance/@username"
+        "bluesky" -> "handle, like alice.bsky.social"
+        "telegram" -> "user ID"
+        else -> "Username"
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Link an account") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box {
+                    OutlinedButton({ choosing = true }, Modifier.fillMaxWidth()) { Text(Identity.PLATFORMS[platform] ?: platform) }
+                    DropdownMenu(choosing, { choosing = false }) {
+                        Identity.PLATFORMS.forEach { (key, label) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = {
+                                platform = key
+                                choosing = false
+                            })
+                        }
+                    }
+                }
+                OutlinedTextField(name, { name = it }, label = { Text(nameHint) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(proof, { proof = it }, label = { Text(proofHint) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text(
+                    "Post this from that account, then put the post's ID above:",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Surface(
+                    onClick = { context.copy(Identity.proofText(npub)) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
+                    Text(Identity.proofText(npub), modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodySmall)
+                }
+                Text("Tap the text to copy it.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                {
+                    val normalized = name.trim().removePrefix("@").let { if (platform == "mastodon") it else it.lowercase() }
+                    onAdd(Identity(platform, normalized, proof.trim()))
+                    onDismiss()
+                },
+                enabled = name.isNotBlank() && proof.isNotBlank(),
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Shows what each relay really holds for this account. Everything in the report is public. */

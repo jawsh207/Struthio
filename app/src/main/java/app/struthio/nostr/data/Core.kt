@@ -18,6 +18,10 @@ import app.struthio.nostr.core.FileCipher
 import app.struthio.nostr.core.FileMessage
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Hex
+import app.struthio.nostr.core.parseIdentities
+import app.struthio.nostr.core.parseStatus
+import app.struthio.nostr.core.Identity
+import app.struthio.nostr.core.Status
 import app.struthio.nostr.core.addressOf
 import app.struthio.nostr.core.KeyBackup
 import app.struthio.nostr.core.Keys
@@ -786,6 +790,66 @@ class Core(private val context: Context) {
         o.remove("displayName")
         o.remove("username")
         publish(Draft(pubkey, nowSeconds(), Kind.METADATA, emptyList(), o.toString()))
+    }
+
+    /** NIP-38: someone's current statuses, what they're doing and what they're listening to. */
+    suspend fun statusesOf(pubkey: String): List<Status> = withContext(Dispatchers.IO) {
+        val newest = HashMap<String, Event>()
+        pool.query(
+            (relaysOf(pubkey)?.write.orEmpty() + readRelays() + DEFAULT_RELAYS).take(8).toSet(),
+            listOf(Filter(authors = listOf(pubkey), kinds = listOf(Kind.STATUS), tags = mapOf("d" to listOf("general", "music")), limit = 4)),
+        ) { e, _ ->
+            val d = e.tags.value("d").orEmpty()
+            synchronized(newest) { if ((newest[d]?.createdAt ?: 0) < e.createdAt) newest[d] = e }
+        }
+        // General first, then music.
+        listOfNotNull(newest["general"], newest["music"]).mapNotNull { parseStatus(it) }
+    }
+
+    /** NIP-39: the accounts elsewhere someone has linked to their key. */
+    suspend fun identitiesOf(pubkey: String): List<Identity> = withContext(Dispatchers.IO) {
+        var newest: Event? = store.latest(pubkey, Kind.IDENTITIES)
+        pool.query(
+            (relaysOf(pubkey)?.write.orEmpty() + lookupRelays() + DEFAULT_RELAYS).take(8).toSet(),
+            listOf(Filter(authors = listOf(pubkey), kinds = listOf(Kind.IDENTITIES), limit = 1)),
+        ) { e, relay ->
+            ingest(e, relay)
+            synchronized(this@Core) { if ((newest?.createdAt ?: 0) < e.createdAt) newest = e }
+        }
+        newest?.let(::parseIdentities).orEmpty()
+    }
+
+    /**
+     * Whether a GitHub link checks out: the gist is the account's own and holds this npub, as NIP-39
+     * asks. The other platforms need a login to read their posts, so they're shown unchecked.
+     */
+    suspend fun verifyIdentity(pubkey: String, identity: Identity): Boolean = withContext(Dispatchers.IO) {
+        if (identity.platform != "github" || !identity.proof.all { it.isLetterOrDigit() }) return@withContext false
+        runCatching {
+            val gist = Http.json("https://api.github.com/gists/${identity.proof}")
+            val owner = gist.optJSONObject("owner")?.optString("login").orEmpty()
+            val files = gist.optJSONObject("files") ?: return@runCatching false
+            val npub = Nip19.npub(pubkey)
+            owner.equals(identity.name, ignoreCase = true) &&
+                files.keys().asSequence().any { files.optJSONObject(it)?.optString("content").orEmpty().contains(npub) }
+        }.getOrDefault(false)
+    }
+
+    /** Sets your general status; empty clears it (NIP-38). It can be set to end after [hours]. */
+    suspend fun setStatus(text: String, hours: Int? = null) {
+        val tags = ArrayList<List<String>>()
+        tags += listOf("d", "general")
+        if (text.isNotBlank() && hours != null) tags += listOf("expiration", (nowSeconds() + hours * 3600L).toString())
+        publish(Draft(author(), nowSeconds(), Kind.STATUS, tags, text.trim()))
+    }
+
+    /** Replaces your linked accounts (kind 10011), starting from the newest copy on your relays. */
+    suspend fun setIdentities(list: List<Identity>) {
+        val pubkey = author()
+        latestFromRelays(pubkey, Kind.IDENTITIES)
+        // Any tags this version of Struthio doesn't know are kept.
+        val others = store.latest(pubkey, Kind.IDENTITIES)?.tags.orEmpty().filter { it.firstOrNull() != "i" }
+        publish(Draft(pubkey, nowSeconds(), Kind.IDENTITIES, others + list.map { it.tag() }, ""))
     }
 
     /** Replaceable lists are edited from the newest copy on the network, never from a stale one. */
