@@ -124,7 +124,7 @@ class Core(private val context: Context) {
         load = { prefs.getString("relay_stats", null) },
         save = { prefs.edit().putString("relay_stats", it).apply() },
     )
-    val pool = RelayPool(scope, { signer.value }, relayStats)
+    val pool = RelayPool(scope, relayStats) { signer.value }
     val wallet = Wallet(this)
     val media = MediaUploader(this, context)
     private val previewDir = File(context.cacheDir, "previews")
@@ -1533,7 +1533,7 @@ class Core(private val context: Context) {
             if (prefs.contains("notify_since")) prefs.edit().putLong("notify_since", now).apply()
             return
         }
-        val checker = RelayPool(scope, { signer.value }, relayStats)
+        val checker = RelayPool(scope, relayStats) { signer.value }
         checker.activityStarted()
         try {
             val answered = checker.query(

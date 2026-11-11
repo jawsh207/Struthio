@@ -61,9 +61,9 @@ data class PublishResult(val ok: Boolean, val message: String)
 /** All relay connections. Sockets exist only while something needs them and the app is in front. */
 class RelayPool(
     private val scope: CoroutineScope,
-    private val signer: () -> Signer?,
     /** Data use and reachability per relay, shared by every pool so background checks count too. */
     private val stats: RelayStats? = null,
+    private val signer: () -> Signer?,
 ) {
     /** The last 30 days of Struthio's use of [url]. */
     fun usage(url: String): RelayStats.Summary? = stats?.summary(url)
