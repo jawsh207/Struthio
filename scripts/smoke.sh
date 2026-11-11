@@ -137,6 +137,8 @@ adb exec-out uiautomator dump /dev/tty > smoke/ui.xml 2>/dev/null
 python3 - <<'PY'
 import re,subprocess
 xml=open('smoke/ui.xml',errors='ignore').read()
+for t in re.findall(r'text="([^"]+)"',xml):
+    print('relays screen:', t)
 m=re.search(r'<node [^>]*text="[a-z0-9.-]+\.[a-z]{2,}"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',xml)
 if m:
     a,b,c,d=map(int,m.groups())
@@ -148,6 +150,7 @@ adb exec-out screencap -p > smoke/09b-relay.png
 adb shell input swipe 500 1600 500 500 500
 sleep 2
 adb exec-out screencap -p > smoke/09c-relay.png
+adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o 'text="[^"]*"' | sed 's/^/relay details: /' || true
 adb shell input keyevent 4
 sleep 2
 adb shell input keyevent 4
