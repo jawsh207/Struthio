@@ -1,5 +1,6 @@
 package app.struthio.nostr.ui
 
+import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
@@ -165,6 +166,7 @@ fun SettingsScreen() {
     var revealed by remember { mutableStateOf<String?>(null) }
     var confirmReveal by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
+    var vanishing by remember { mutableStateOf(false) }
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() }
 
     Column(Modifier.fillMaxSize()) {
@@ -276,6 +278,14 @@ fun SettingsScreen() {
             )
             Spacer(Modifier.height(16.dp))
             SettingRow(RoundedCornerShape(24.dp), Icons.AutoMirrored.Rounded.Logout, "Sign out", color = MaterialTheme.colorScheme.error) { confirmSignOut = true }
+            Spacer(Modifier.height(8.dp))
+            SettingRow(
+                RoundedCornerShape(24.dp),
+                Icons.Rounded.DeleteForever,
+                "Delete account everywhere",
+                "Ask every relay to erase everything you've posted",
+                color = MaterialTheme.colorScheme.error,
+            ) { vanishing = true }
             Text(
                 listOfNotNull("Struthio", version).joinToString(" "),
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -343,6 +353,7 @@ fun SettingsScreen() {
             dismissButton = { TextButton({ revealed = null }) { Text("Close") } },
         )
     }
+    if (vanishing) VanishDialog { vanishing = false }
     if (confirmSignOut) {
         AlertDialog(
             onDismissRequest = { confirmSignOut = false },
@@ -705,4 +716,61 @@ fun Onboarding(modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * NIP-62 request to vanish. Relays that support it must erase every event from this key, and
+ * messages sent to it, and refuse them if they're sent again. There is no undo, so it asks twice.
+ */
+@Composable
+private fun VanishDialog(onDismiss: () -> Unit) {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val scope = rememberCoroutineScope()
+    var reason by remember { mutableStateOf("") }
+    var typed by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { if (!sending) onDismiss() },
+        icon = { Icon(Icons.Rounded.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("Delete account everywhere?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "This asks every relay to permanently erase your posts, profile, lists, reactions and the messages sent to you. " +
+                        "Relays that support it must delete everything and refuse it if it's sent again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "It can't be undone. Not every relay supports it, and anyone who saved a copy keeps it. " +
+                        "Struthio signs out afterwards.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(reason, { reason = it }, label = { Text("Reason (optional)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(typed, { typed = it }, label = { Text("Type DELETE to confirm") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            TextButton(
+                {
+                    sending = true
+                    scope.act(nav) {
+                        try {
+                            val taken = core.requestVanish(reason)
+                            nav.say(if (taken > 0) "Sent to $taken relays. Signing out." else "No relay took the request. Try again.")
+                            if (taken > 0) {
+                                nav.stack.clear()
+                                core.signOut()
+                            }
+                        } finally {
+                            sending = false
+                            onDismiss()
+                        }
+                    }
+                },
+                enabled = typed.trim() == "DELETE" && !sending,
+            ) { Text(if (sending) "Sending…" else "Delete everywhere", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onDismiss, enabled = !sending) { Text("Cancel") } },
+    )
 }

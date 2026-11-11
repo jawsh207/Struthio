@@ -543,6 +543,31 @@ class Core(private val context: Context) {
 
     suspend fun exportSecret(): String? = secure.get(KEY_SECRET)?.let(Nip19::nsec)
 
+    /**
+     * NIP-62: asks every relay to delete everything this key ever published, messages to it
+     * included. It can't be undone. Sent as widely as possible, as the NIP asks of a request to
+     * all relays; returns how many relays took it.
+     */
+    suspend fun requestVanish(reason: String): Int = withContext(Dispatchers.IO) {
+        val active = signer.value ?: throw UserError("Sign in first.")
+        val event = active.sign(Draft(author(), nowSeconds(), Kind.VANISH, listOf(listOf("relay", "ALL_RELAYS")), reason.trim()))
+        val relays = LinkedHashSet<String>()
+        relays += writeRelays()
+        relays += readRelays()
+        relays += dmRelays.value
+        relays += searchRelays()
+        relays += lookupRelays()
+        relays += DEFAULT_RELAYS
+        relays += DEFAULT_DM_RELAYS
+        // Then everywhere else people on this phone's cache publish to.
+        synchronized(relayLists) { relayLists.values.forEach { relays += it.write; relays += it.read } }
+        val targets = relays.mapNotNull(::normalizeRelay).distinct().take(MAX_VANISH_RELAYS).toSet()
+        val results = pool.publish(event, targets, timeoutMs = 15_000)
+        val taken = results.count { it.value.ok }
+        AppLog.add("request to vanish sent to ${targets.size} relays: $taken took it")
+        taken
+    }
+
     suspend fun signOut() {
         sessionSubs.forEach(pool::close)
         sessionSubs.clear()
@@ -1693,6 +1718,9 @@ class Core(private val context: Context) {
 
         /** How long a failed event is reused for retries; after that a retry is a new post. */
         private const val RETRY_SAME_EVENT_S = 60 * 60L
+
+        /** Relays a request to vanish is sent to, at most. */
+        private const val MAX_VANISH_RELAYS = 100
 
         val DEFAULT_RELAYS = listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
         val DEFAULT_LOOKUP_RELAYS = listOf("wss://purplepag.es", "wss://indexer.coracle.social")
