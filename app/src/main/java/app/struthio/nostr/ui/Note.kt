@@ -93,7 +93,7 @@ import app.struthio.nostr.data.Stats
 fun FeedItem(event: Event, modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(24.dp)) {
     val core = LocalCore.current
     if (core.deleted.containsKey(event.id)) return
-    if (event.kind == Kind.REPOST) {
+    if (event.kind == Kind.REPOST || event.kind == Kind.GENERIC_REPOST) {
         val inner by produceState<Event?>(repostedEvent(event), event.id) {
             if (value == null) {
                 event.tags.values("e").lastOrNull()?.let { value = core.fetchEvent(it, author = null) }

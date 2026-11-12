@@ -262,7 +262,7 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4
     )
 
     fun authorNotes(pubkey: String, limit: Int, until: Long): List<Event> = events(
-        "SELECT $COLUMNS FROM events WHERE pubkey=? AND kind IN ($POST_KINDS) AND created_at < ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT $COLUMNS FROM events WHERE pubkey=? AND kind IN ($AUTHOR_KINDS) AND created_at < ? ORDER BY created_at DESC LIMIT ?",
         arrayOf(pubkey, until.toString(), limit.toString()),
     )
 
@@ -558,6 +558,8 @@ class Store(context: Context) : SQLiteOpenHelper(context, "struthio.db", null, 4
         const val COLUMNS = "id, pubkey, created_at, kind, tags, content, sig"
         /** Kinds shown as posts in feeds: notes, boosts, pictures, videos, polls and articles. */
         const val POST_KINDS = "1,6,20,21,22,1068,30023,34235,34236"
+        /** A profile's posts: everything above, plus their comments and boosts of anything. */
+        const val AUTHOR_KINDS = "$POST_KINDS,16,1111"
         const val THREAD_KINDS = "1,20,21,22,1068,1111,30023,34235,34236"
 
         val NOTIFYING = setOf(Kind.NOTE, Kind.COMMENT, Kind.REPOST, Kind.GENERIC_REPOST, Kind.REACTION, Kind.ZAP_RECEIPT)

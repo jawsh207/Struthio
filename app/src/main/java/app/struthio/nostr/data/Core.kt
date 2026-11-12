@@ -12,6 +12,7 @@ import android.os.Looper
 import androidx.compose.runtime.mutableStateMapOf
 import app.struthio.nostr.core.Draft
 import app.struthio.nostr.core.Entity
+import app.struthio.nostr.core.websiteUrl
 import app.struthio.nostr.core.DEFAULT_REACTION
 import app.struthio.nostr.core.LinkInfo
 import app.struthio.nostr.core.Event
@@ -105,6 +106,9 @@ data class Profile(
     val nip05: String?,
     val lud16: String?,
     val lud06: String?,
+    /** NIP-24 extras: a wide header picture and a web page. */
+    val banner: String? = null,
+    val website: String? = null,
     val verified: Boolean = false,
     val raw: String = "{}",
     val emoji: Map<String, String> = emptyMap(),
@@ -312,6 +316,8 @@ class Core(private val context: Context) {
             field("nip05"),
             field("lud16"),
             field("lud06"),
+            banner = field("banner")?.takeIf { it.startsWith("https://") },
+            website = websiteUrl(field("website")),
             raw = e.content,
             emoji = emojiMap(e.tags),
         )

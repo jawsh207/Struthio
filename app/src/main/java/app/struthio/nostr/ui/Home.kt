@@ -46,6 +46,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.struthio.nostr.core.Event
+import app.struthio.nostr.core.GalleryItem
+import app.struthio.nostr.core.galleryMedia
 import app.struthio.nostr.data.Feed
 import app.struthio.nostr.data.FeedSource
 import kotlinx.coroutines.flow.Flow
@@ -153,8 +156,20 @@ private fun FeedSelector(selected: Int, onSelect: (Int) -> Unit) {
 }
 
 @Composable
-fun NoteList(feed: Feed, modifier: Modifier = Modifier, scrollToTop: Flow<Unit>? = null, empty: String = "Nothing here yet.", header: (@Composable () -> Unit)? = null) {
-    val notes by feed.notes.collectAsState()
+fun NoteList(
+    feed: Feed,
+    modifier: Modifier = Modifier,
+    scrollToTop: Flow<Unit>? = null,
+    empty: String = "Nothing here yet.",
+    /** Shows only some of the feed, as a profile's tabs do. */
+    filter: ((Event) -> Boolean)? = null,
+    /** Pictures and videos in a grid rather than notes in a list. */
+    gallery: Boolean = false,
+    header: (@Composable () -> Unit)? = null,
+) {
+    val all by feed.notes.collectAsState()
+    val notes = remember(all, filter) { if (filter == null) all else all.filter(filter) }
+    val tiles = remember(notes, gallery) { if (gallery) notes.flatMap { e -> galleryMedia(e).map { e to it } }.chunked(3) else emptyList() }
     val loading by feed.loading.collectAsState()
     val list = rememberLazyListState()
     val nearEnd by remember {
@@ -163,7 +178,9 @@ fun NoteList(feed: Feed, modifier: Modifier = Modifier, scrollToTop: Flow<Unit>?
             info.totalItemsCount > 0 && (info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - 6
         }
     }
-    LaunchedEffect(nearEnd) { if (nearEnd) feed.loadMore() }
+    // Keyed on the whole feed too: when a tab shows few of its notes, each page loaded may still be
+    // near the end, and the next one is needed.
+    LaunchedEffect(nearEnd, all.size) { if (nearEnd) feed.loadMore() }
     LaunchedEffect(scrollToTop) {
         scrollToTop?.collect {
             // From far down, jump closer first so the animation stays short.
@@ -189,8 +206,14 @@ fun NoteList(feed: Feed, modifier: Modifier = Modifier, scrollToTop: Flow<Unit>?
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             header?.let { item(key = "header") { it() } }
-            itemsIndexed(notes, key = { _, it -> it.id }, contentType = { _, it -> it.kind }) { index, note ->
-                FeedItem(note, shape = segmentShape(index, notes.size))
+            if (gallery) {
+                itemsIndexed(tiles, key = { _, row -> row.first().let { (e, m) -> e.id + m.url } }) { _, row ->
+                    GalleryRow(row)
+                }
+            } else {
+                itemsIndexed(notes, key = { _, it -> it.id }, contentType = { _, it -> it.kind }) { index, note ->
+                    FeedItem(note, shape = segmentShape(index, notes.size))
+                }
             }
             if (notes.isEmpty()) {
                 item(key = "state") {

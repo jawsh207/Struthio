@@ -422,6 +422,8 @@ fun EditProfileScreen() {
     var displayName by remember { mutableStateOf(current.optString("display_name")) }
     var about by remember { mutableStateOf(current.optString("about")) }
     var picture by remember { mutableStateOf(current.optString("picture")) }
+    var banner by remember { mutableStateOf(current.optString("banner")) }
+    var website by remember { mutableStateOf(current.optString("website")) }
     var nip05 by remember { mutableStateOf(current.optString("nip05")) }
     var lud16 by remember { mutableStateOf(current.optString("lud16")) }
     var saving by remember { mutableStateOf(false) }
@@ -442,6 +444,15 @@ fun EditProfileScreen() {
                 OutlinedTextField(name, { name = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(about, { about = it }, label = { Text("About") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(picture, { picture = it }, label = { Text("Picture URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    banner,
+                    { banner = it },
+                    label = { Text("Banner URL") },
+                    supportingText = { Text("A wide picture across the top of your profile.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(website, { website = it }, label = { Text("Website") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(nip05, { nip05 = it }, label = { Text("Nostr address (NIP-05)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(lud16, { lud16 = it }, label = { Text("Lightning address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
@@ -477,7 +488,7 @@ fun EditProfileScreen() {
                                 core.saveProfile(
                                     mapOf(
                                         "name" to name, "display_name" to displayName, "about" to about,
-                                        "picture" to picture, "nip05" to nip05, "lud16" to lud16,
+                                        "picture" to picture, "banner" to banner, "website" to website, "nip05" to nip05, "lud16" to lud16,
                                     ),
                                 )
                                 if (loadedStatus != null && status.trim() != loadedStatus) core.setStatus(status)

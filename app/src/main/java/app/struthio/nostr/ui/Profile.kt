@@ -1,6 +1,27 @@
 package app.struthio.nostr.ui
 
 import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import app.struthio.nostr.core.Event
+import app.struthio.nostr.core.GalleryItem
+import app.struthio.nostr.core.ProfileTab
+import app.struthio.nostr.core.websiteLabel
+import app.struthio.nostr.net.lightningLabel
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.AssistChip
@@ -102,9 +123,12 @@ fun ProfileScreen(pubkey: String) {
     val followerCount by produceState<Long?>(null, pubkey) { value = core.followerCount(pubkey) }
     val statuses by produceState(emptyList<Status>(), pubkey) { value = core.statusesOf(pubkey) }
     val identities by produceState(emptyList<Identity>(), pubkey) { value = core.identitiesOf(pubkey) }
+    var tab by rememberSaveable(pubkey) { mutableStateOf(ProfileTab.POSTS) }
+    val lightning = lightningLabel(profile?.lud16, profile?.lud06)
 
     Column(Modifier.fillMaxSize()) {
-        BackBar(core.displayName(pubkey)) {
+        // The name is right below, so the bar only carries back and the menu.
+        BackBar("") {
             IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text("Copy npub") }, onClick = {
@@ -124,8 +148,11 @@ fun ProfileScreen(pubkey: String) {
                 }
             }
         }
-        NoteList(feed, Modifier.weight(1f), header = {
+        NoteList(feed, Modifier.weight(1f), empty = tab.empty, filter = tab::shows, gallery = tab == ProfileTab.GALLERY, header = {
             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                profile?.banner?.let {
+                    NetImage(it, 420.dp, Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(24.dp)))
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Avatar(pubkey, 84.dp)
                     Column(Modifier.weight(1f)) {
@@ -143,6 +170,17 @@ fun ProfileScreen(pubkey: String) {
                     val text = replaceInvoices(about) { "" }.trim()
                     if (text.isNotEmpty()) EmojiText(text, profile.emoji, style = MaterialTheme.typography.bodyMedium)
                     invoicesIn(about).forEach { InvoiceCard(it) }
+                }
+                profile?.website?.let { site ->
+                    InfoLine(Icons.Rounded.Link, websiteLabel(site), "Website") {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(site))) }
+                    }
+                }
+                lightning?.let { address ->
+                    // Tapping zaps; your own address is copied instead.
+                    InfoLine(Icons.Rounded.Bolt, address, "Lightning address") {
+                        if (isMe) context.copy(address) else zapping = true
+                    }
                 }
                 if (identities.isNotEmpty()) LinkedAccounts(pubkey, identities)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -177,7 +215,18 @@ fun ProfileScreen(pubkey: String) {
                         FilledTonalIconButton({
                             nav.push(Screen.Chat(roomKey(setOf(pubkey, core.me ?: ""))))
                         }) { Icon(Icons.Outlined.ChatBubbleOutline, "Message") }
-                        FilledTonalIconButton({ zapping = true }) { Icon(Icons.Rounded.Bolt, "Zap") }
+                        // Zaps need somewhere to send them.
+                        if (lightning != null) FilledTonalIconButton({ zapping = true }) { Icon(Icons.Rounded.Bolt, "Zap") }
+                    }
+                }
+                PrimaryScrollableTabRow(
+                    selectedTabIndex = tab.ordinal,
+                    edgePadding = 0.dp,
+                    containerColor = Color.Transparent,
+                    divider = {},
+                ) {
+                    ProfileTab.entries.forEach { t ->
+                        Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.label) })
                     }
                 }
             }
@@ -373,5 +422,53 @@ private fun LinkedAccounts(pubkey: String, identities: List<Identity>) {
                 },
             )
         }
+    }
+}
+
+/** A line of profile info with its icon, opening or acting on tap. */
+@Composable
+private fun InfoLine(icon: ImageVector, text: String, description: String, onClick: () -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = description, onClick = onClick).padding(vertical = 2.dp, horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(icon, description, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Three gallery squares; each opens the post it came from. Sensitive posts stay covered here. */
+@Composable
+fun GalleryRow(row: List<Pair<Event, GalleryItem>>) {
+    val nav = LocalNav.current
+    val core = LocalCore.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        row.forEach { (event, item) ->
+            val sensitive = event.tags.any { it.firstOrNull() == "content-warning" }
+            Box(
+                Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable { nav.push(Screen.Thread(event.id)) },
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    sensitive -> Icon(Icons.Rounded.VisibilityOff, "Sensitive", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    !item.video -> NetImage(item.url, 160.dp, Modifier.fillMaxSize())
+                    item.thumbnail != null -> NetImage(item.thumbnail, 160.dp, Modifier.fillMaxSize())
+                    else -> {
+                        val frame by produceState<android.graphics.Bitmap?>(null, item.url) {
+                            if (core.linkPreviewsEnabled()) value = core.videoFrame(item.url)
+                        }
+                        frame?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                    }
+                }
+                if (item.video && !sensitive) {
+                    Icon(Icons.Rounded.PlayArrow, "Video", Modifier.size(36.dp), tint = Color.White)
+                }
+            }
+        }
+        // A short last row keeps square tiles.
+        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
     }
 }

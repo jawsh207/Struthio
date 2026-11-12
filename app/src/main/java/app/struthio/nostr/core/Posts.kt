@@ -93,3 +93,47 @@ fun article(event: Event): Article? {
         event.tags.value("published_at")?.toLongOrNull(),
     )
 }
+
+/** The tabs on a profile, each a slice of what that person has posted. */
+enum class ProfileTab(val label: String, val empty: String) {
+    POSTS("Posts", "No posts yet."),
+    REPLIES("Replies", "No replies yet."),
+    BOOSTS("Boosts", "No boosts yet."),
+    GALLERY("Gallery", "No pictures or videos yet.");
+
+    fun shows(event: Event): Boolean = when (this) {
+        // Their own posts: notes, polls, pictures, videos and articles that start something.
+        POSTS -> event.kind in Kind.POSTS && threadRef(event).root == null
+        // Answers to others: replying notes (NIP-10) and comments (NIP-22).
+        REPLIES -> (event.kind == Kind.NOTE || event.kind == Kind.COMMENT) && threadRef(event).root != null
+        // NIP-18 reposts, of notes or of anything else.
+        BOOSTS -> event.kind == Kind.REPOST || event.kind == Kind.GENERIC_REPOST
+        GALLERY -> galleryMedia(event).isNotEmpty()
+    }
+}
+
+/** One picture or video in a profile's gallery. */
+data class GalleryItem(val url: String, val video: Boolean, val thumbnail: String?)
+
+/** The pictures and videos someone posted in [event]: picture and video posts, and notes with media. */
+fun galleryMedia(event: Event): List<GalleryItem> = when {
+    event.kind == Kind.PICTURE -> pictures(event).map { GalleryItem(it.url, false, null) }
+    event.kind in Kind.VIDEOS -> listOfNotNull(videoPost(event)?.let { GalleryItem(it.url, true, it.thumbnail) })
+    event.kind == Kind.NOTE || event.kind == Kind.COMMENT -> {
+        val thumbs = videoThumbnails(event)
+        noteImages(event).map { GalleryItem(it.url, false, null) } +
+            noteVideos(event).map { GalleryItem(it, true, thumbs[it]) }
+    }
+    else -> emptyList()
+}
+
+/** NIP-24's `website`, as a link that opens: a bare domain gets https, anything not on the web is dropped. */
+fun websiteUrl(text: String?): String? {
+    val t = text?.trim()?.takeIf { it.isNotEmpty() && ' ' !in it } ?: return null
+    val url = if ("://" in t) t else "https://$t"
+    return url.takeIf { (it.startsWith("https://") || it.startsWith("http://")) && it.substringAfter("://").substringBefore('/').contains('.') }
+}
+
+/** A website as people read it: no scheme, no www, no trailing slash. */
+fun websiteLabel(url: String): String =
+    url.substringAfter("://").removePrefix("www.").trimEnd('/')

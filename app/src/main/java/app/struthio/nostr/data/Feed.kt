@@ -37,7 +37,9 @@ class Feed(private val core: Core, private val source: FeedSource) {
     private var moreRunning = false
 
     /** Notes and polls, picture and video posts, articles, and boosts of them. */
-    private val kinds = Kind.POSTS + Kind.REPOST
+    private val kinds = Kind.POSTS + Kind.REPOST +
+        // A profile also has tabs for comments and for boosts of things other than notes.
+        if (source is FeedSource.Author) listOf(Kind.COMMENT, Kind.GENERIC_REPOST) else emptyList()
 
     /** The trusted network applies to discovery feeds only, never to replies or notifications. */
     private val filtered: Boolean
