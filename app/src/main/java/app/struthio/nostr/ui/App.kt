@@ -77,11 +77,25 @@ sealed interface Screen {
 /** Whether the screen this sits in is the one being looked at. Hidden screens stop playing media. */
 val LocalScreenActive = compositionLocalOf { true }
 
+/** The same place, whichever way it was reached: relay and author hints don't make a thread a new one. */
+private fun Screen.sameAs(other: Screen): Boolean =
+    if (this is Screen.Thread && other is Screen.Thread) id == other.id else this == other
+
 class Nav(private val scope: CoroutineScope, private val snackbar: SnackbarHostState) {
     val stack = mutableStateListOf<Screen>()
 
+    /**
+     * Opens [screen]. If it's already open further back, Struthio goes back to it instead of stacking
+     * another copy: going round in circles (a profile, its followers, the same profile; a chat, its
+     * person, the same chat) would otherwise leave a back gesture for every lap.
+     */
     fun push(screen: Screen) {
-        stack += screen
+        val open = stack.indexOfFirst { it.sameAs(screen) }
+        if (open < 0) {
+            stack += screen
+            return
+        }
+        while (stack.lastIndex > open) stack.removeAt(stack.lastIndex)
     }
 
     /** Tapping Home while already there. */
