@@ -116,10 +116,12 @@ fun NoteCard(
     highlighted: Boolean = false,
     onReply: ((Event) -> Unit)? = null,
     top: (@Composable () -> Unit)? = null,
+    /** What a tap does; opening the note's thread unless said otherwise. */
+    onClick: (() -> Unit)? = null,
 ) {
     val nav = LocalNav.current
     Surface(
-        onClick = { nav.push(Screen.Thread(event.id)) },
+        onClick = onClick ?: { nav.push(Screen.Thread(event.id)) },
         modifier = modifier.fillMaxWidth(),
         shape = shape,
         color = if (highlighted) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceBright,

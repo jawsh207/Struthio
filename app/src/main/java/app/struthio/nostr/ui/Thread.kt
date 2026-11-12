@@ -174,6 +174,12 @@ fun ThreadScreen(screen: Screen.Thread) {
                             replyTo = it
                             field.requestFocus()
                         },
+                        // Everything here is already on screen, so a tap picks what to reply to rather
+                        // than opening the same thread again, one more back gesture each time.
+                        onClick = {
+                            replyTo = if (event.id == focus?.id) null else event
+                            field.requestFocus()
+                        },
                         top = if (depth > 0 && parent != null) {
                             {
                                 ReplyLine(list.getOrNull(rows[parent] ?: -1)?.first?.pubkey ?: threadRef(event).parentAuthor) {
