@@ -88,3 +88,7 @@ CI needs four repository secrets (Settings › Secrets and variables › Actions
 | `STRUTHIO_KEY_PASSWORD` | key password, the same as the keystore password |
 
 Keep the keystore and its password backed up privately. Android only accepts updates signed with the same key, and anyone holding it can sign APKs that install over Struthio.
+
+## License
+
+Struthio is licensed under the [Apache License 2.0](LICENSE). Bundled third-party work and its licenses are listed in [NOTICE](NOTICE).
