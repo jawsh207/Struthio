@@ -69,6 +69,15 @@ sleep 1
 adb shell am start -a android.intent.action.VIEW -d "nostr:$NPUB" >/dev/null
 sleep 12
 adb exec-out screencap -p > smoke/04-profile.png
+say_screen() { adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o 'text="[^"]*"\|content-desc="[^"]*"' | grep -v '=""' | head -40 | sed "s/^/$1: /" || true; }
+say_screen profile
+for t in Replies Boosts Gallery; do
+  tap_text "$t"
+  sleep 5
+  say_screen "$t"
+done
+tap_text "Posts"
+sleep 1
 adb shell input keyevent 4
 sleep 2
 tap_text "Wallet"
