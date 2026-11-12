@@ -134,7 +134,8 @@ private fun EmbedPlayer(embed: VideoEmbed) {
         (view.parent as? ViewGroup)?.removeView(view)
         fullscreen = null
         callback.onCustomViewHidden()
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        // Back to the app's own portrait lock.
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if (Build.VERSION.SDK_INT >= 30) activity?.window?.insetsController?.show(WindowInsets.Type.systemBars())
     }
 
