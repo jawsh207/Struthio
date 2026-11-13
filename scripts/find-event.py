@@ -37,10 +37,30 @@ def tlv(t, v):
     return bytes([t, len(v)]) + v
 
 
+# The read-only test account. Profiles are picked from people it follows, not from anyone at all.
+TEST_PUBKEY = "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+
+
+async def ask(ws, flt):
+    await ws.send(json.dumps(["REQ", "q", flt]))
+    found = []
+    while True:
+        msg = json.loads(await asyncio.wait_for(ws.recv(), 10))
+        if msg[0] in ("EOSE", "CLOSED"):
+            await ws.send(json.dumps(["CLOSE", "q"]))
+            return found
+        if msg[0] == "EVENT":
+            found.append(msg[2])
+
+
 async def scan(host, kind):
     try:
         async with websockets.connect(f"wss://{host}", open_timeout=8, max_size=2**23) as ws:
-            await ws.send(json.dumps(["REQ", "k", {"kinds": [kind], "limit": 200 if kind == 0 else 40}]))
+            if kind == 0:
+                lists = await ask(ws, {"kinds": [3], "authors": [TEST_PUBKEY], "limit": 1})
+                follows = [t[1] for l in lists[:1] for t in l["tags"] if len(t) > 1 and t[0] == "p"][:300]
+                return await ask(ws, {"kinds": [0], "authors": follows}) if follows else []
+            await ws.send(json.dumps(["REQ", "k", {"kinds": [kind], "limit": 40}]))
             found = []
             while True:
                 msg = json.loads(await asyncio.wait_for(ws.recv(), 10))

@@ -45,7 +45,7 @@ for kind in 0 20 21 22 30023 10011; do
   adb shell am start -a android.intent.action.VIEW -d "nostr:$ref" >/dev/null
   sleep 14
   adb exec-out screencap -p > smoke/k$n-kind$kind.png
-  [ "$kind" = 0 ] && adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o 'text="[^"]*"\|content-desc="[^"]*"' | grep -v '=""' | head -25 | sed 's/^/profile: /'
+  [ "$kind" = 0 ] && sleep 6 && adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o 'text="[^"]*"\|content-desc="[^"]*"' | grep -v '=""' | head -25 | sed 's/^/profile: /'
   if [ "$kind" = 30023 ]; then
     adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*25/100)) 600; sleep 2
     adb exec-out screencap -p > smoke/k$n-kind$kind-more.png
