@@ -37,6 +37,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -186,16 +187,7 @@ fun Avatar(pubkey: String, size: Dp = 48.dp, onClick: (() -> Unit)? = null) {
     LaunchedEffect(pubkey) { core.wantProfile(pubkey) }
     val profile = core.profiles[pubkey]
     val index = pubkey.takeLast(2).toInt(16)
-    val shape = when (index % 8) {
-        0 -> MaterialShapes.Cookie9Sided
-        1 -> MaterialShapes.Cookie7Sided
-        2 -> MaterialShapes.Sunny
-        3 -> MaterialShapes.Clover4Leaf
-        4 -> MaterialShapes.Pentagon
-        5 -> MaterialShapes.Arch
-        6 -> MaterialShapes.Gem
-        else -> MaterialShapes.Puffy
-    }.toShape()
+    val shape = avatarShape(pubkey)
     val colors = MaterialTheme.colorScheme
     val (back, front) = when (index % 3) {
         0 -> colors.tertiaryContainer to colors.onTertiaryContainer
@@ -213,6 +205,30 @@ fun Avatar(pubkey: String, size: Dp = 48.dp, onClick: (() -> Unit)? = null) {
             Text(initials(core.displayName(pubkey)), color = front, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.34f).sp)
         }
     }
+}
+
+/** Each person's avatar has its own shape, picked from their key so it never changes. */
+@Composable
+fun avatarShape(pubkey: String): Shape {
+    val index = pubkey.takeLast(2).toInt(16)
+    return when (index % 8) {
+        0 -> MaterialShapes.Cookie9Sided
+        1 -> MaterialShapes.Cookie7Sided
+        2 -> MaterialShapes.Sunny
+        3 -> MaterialShapes.Clover4Leaf
+        4 -> MaterialShapes.Pentagon
+        5 -> MaterialShapes.Arch
+        6 -> MaterialShapes.Gem
+        else -> MaterialShapes.Puffy
+    }.toShape()
+}
+
+/** Lets one item of a padded list reach the screen's edges, as a profile's banner does. */
+fun Modifier.fullBleed(gutter: Dp) = layout { measurable, constraints ->
+    val g = gutter.roundToPx()
+    val width = constraints.maxWidth + 2 * g
+    val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-g, 0) }
 }
 
 private fun initials(name: String): String {

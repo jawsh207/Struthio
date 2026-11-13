@@ -1,6 +1,16 @@
 package app.struthio.nostr.ui
 
 import android.net.Uri
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -126,36 +136,11 @@ fun ProfileScreen(pubkey: String) {
     var tab by rememberSaveable(pubkey) { mutableStateOf(ProfileTab.POSTS) }
     val lightning = lightningLabel(profile?.lud16, profile?.lud06)
 
-    Column(Modifier.fillMaxSize()) {
-        // The name is right below, so the bar only carries back and the menu.
-        BackBar("") {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
-            DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem(text = { Text("Copy npub") }, onClick = {
-                    menu = false
-                    context.copy(Nip19.npub(pubkey))
-                })
-                DropdownMenuItem(text = { Text("Show QR code") }, onClick = {
-                    menu = false
-                    showQr = true
-                })
-                if (!isMe) {
-                    val isMuted = pubkey in muted
-                    DropdownMenuItem(text = { Text(if (isMuted) "Unmute" else "Mute") }, onClick = {
-                        menu = false
-                        scope.act(nav) { core.setMuted(pubkey, !isMuted) }
-                    })
-                }
-            }
-        }
-        NoteList(feed, Modifier.weight(1f), empty = tab.empty, filter = tab::shows, gallery = tab == ProfileTab.GALLERY, header = {
-            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                profile?.banner?.let {
-                    NetImage(it, 420.dp, Modifier.fillMaxWidth().aspectRatio(3f).clip(RoundedCornerShape(24.dp)))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Avatar(pubkey, 84.dp)
-                    Column(Modifier.weight(1f)) {
+    Box(Modifier.fillMaxSize()) {
+        NoteList(feed, Modifier.fillMaxSize(), empty = tab.empty, filter = tab::shows, gallery = tab == ProfileTab.GALLERY, header = {
+            Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ProfileBanner(pubkey, profile?.banner)
+                Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             EmojiText(core.richName(pubkey), profile?.emoji.orEmpty(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
                             if (profile?.verified == true) {
@@ -163,7 +148,6 @@ fun ProfileScreen(pubkey: String) {
                             }
                         }
                         profile?.nip05?.let { Text(it.removePrefix("_@"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
                 }
                 statuses.forEach { StatusLine(it) }
                 profile?.about?.takeIf { it.isNotBlank() }?.let { about ->
@@ -215,8 +199,6 @@ fun ProfileScreen(pubkey: String) {
                         FilledTonalIconButton({
                             nav.push(Screen.Chat(roomKey(setOf(pubkey, core.me ?: ""))))
                         }) { Icon(Icons.Outlined.ChatBubbleOutline, "Message") }
-                        // Zaps need somewhere to send them.
-                        if (lightning != null) FilledTonalIconButton({ zapping = true }) { Icon(Icons.Rounded.Bolt, "Zap") }
                     }
                 }
                 PrimaryScrollableTabRow(
@@ -231,6 +213,34 @@ fun ProfileScreen(pubkey: String) {
                 }
             }
         })
+        // Back and the menu float over the banner, which runs up behind them.
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OverBannerButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back") { nav.pop() }
+            Spacer(Modifier.weight(1f))
+            Box {
+                OverBannerButton(Icons.Rounded.MoreVert, "More") { menu = true }
+            DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem(text = { Text("Copy npub") }, onClick = {
+                        menu = false
+                        context.copy(Nip19.npub(pubkey))
+                    })
+                    DropdownMenuItem(text = { Text("Show QR code") }, onClick = {
+                        menu = false
+                        showQr = true
+                    })
+                    if (!isMe) {
+                        val isMuted = pubkey in muted
+                        DropdownMenuItem(text = { Text(if (isMuted) "Unmute" else "Mute") }, onClick = {
+                            menu = false
+                            scope.act(nav) { core.setMuted(pubkey, !isMuted) }
+                        })
+                    }
+                }
+            }
+        }
     }
     if (zapping) ZapSheet(null, pubkey) { zapping = false }
     if (showQr) {
@@ -471,4 +481,47 @@ fun GalleryRow(row: List<Pair<Event, GalleryItem>>) {
         // A short last row keeps square tiles.
         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
     }
+}
+
+/**
+ * The banner across the whole width, up behind the status bar and the back button, with the
+ * avatar half over its lower edge, ringed in the page colour. Without a banner, a plain band.
+ */
+@Composable
+private fun ProfileBanner(pubkey: String, banner: String?) {
+    val avatar = 84.dp
+    val ring = 4.dp
+    val shape = avatarShape(pubkey)
+    BoxWithConstraints(Modifier.fullBleed(PageGutter)) {
+        // Banners are made 3:1; that much shows below the status bar.
+        val bannerHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + maxWidth / 3
+        Box(Modifier.fillMaxWidth().height(bannerHeight + avatar / 2 + ring)) {
+            BannerArea(banner, Modifier.fillMaxWidth().height(bannerHeight))
+            Box(
+                Modifier.align(Alignment.BottomStart).padding(start = PageGutter - ring)
+                    .size(avatar + ring * 2).clip(shape).background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center,
+            ) { Avatar(pubkey, avatar) }
+        }
+    }
+}
+
+@Composable
+private fun BannerArea(banner: String?, modifier: Modifier) {
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+        banner?.let { NetImage(it, 480.dp, Modifier.fillMaxSize()) }
+        // A shade at the top keeps the status bar and the buttons readable on light pictures.
+        Box(
+            Modifier.fillMaxWidth().height(110.dp)
+                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent))),
+        )
+    }
+}
+
+@Composable
+private fun OverBannerButton(icon: ImageVector, description: String, onClick: () -> Unit) {
+    FilledIconButton(
+        onClick,
+        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = 0.35f), contentColor = Color.White),
+    ) { Icon(icon, description) }
 }
