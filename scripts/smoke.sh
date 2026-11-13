@@ -139,6 +139,12 @@ adb exec-out screencap -p > smoke/09-check.png
 adb shell input keyevent 4
 sleep 2
 adb exec-out screencap -p > smoke/09x-settings.png
+# Switching dark mode must leave you where you were, not back on Home.
+adb shell cmd uimode night yes; sleep 4
+adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -q 'text="Manage relays"' && echo "theme switch: stayed in Settings" || echo "theme switch: LEFT Settings"
+adb exec-out screencap -p > smoke/09x-dark.png
+adb shell cmd uimode night no; sleep 4
+adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -q 'text="Manage relays"' && echo "theme switch back: stayed in Settings" || echo "theme switch back: LEFT Settings"
 tap_text "Manage relays"
 sleep 7
 adb exec-out screencap -p > smoke/09a-relays.png

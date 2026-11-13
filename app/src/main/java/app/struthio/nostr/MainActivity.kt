@@ -1,6 +1,7 @@
 package app.struthio.nostr
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -50,6 +51,16 @@ class MainActivity : ComponentActivity() {
                 App(core, deepLink)
             }
         }
+    }
+
+    /**
+     * Light/dark, text size, display size and language changes are handled in place rather than
+     * by rebuilding the activity, which would drop every open screen and land back on Home.
+     * Compose redraws itself; the system bar icons need telling.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        enableEdgeToEdge()
     }
 
     override fun onNewIntent(intent: Intent) {
