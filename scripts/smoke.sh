@@ -238,5 +238,18 @@ out=io.BytesIO(); sheet.save(out,'JPEG',quality=62)
 data=base64.b64encode(out.getvalue()).decode()
 for i in range(0,len(data),3000): print('SHEET:'+data[i:i+3000])
 PY
+# The app icon as the launcher draws it: home, then the app list.
+adb shell input keyevent KEYCODE_HOME; sleep 2
+adb shell input swipe $((W/2)) $((H*85/100)) $((W/2)) $((H*20/100)) 400; sleep 3
+adb exec-out screencap -p > smoke/zz-launcher.png
+python3 - <<'PY'
+import base64,io
+from PIL import Image
+img=Image.open('smoke/zz-launcher.png').convert('RGB')
+img=img.resize((540,int(img.height*540/img.width)))
+out=io.BytesIO(); img.save(out,'JPEG',quality=85)
+data=base64.b64encode(out.getvalue()).decode()
+for i in range(0,len(data),3000): print('LAUNCHER:'+data[i:i+3000])
+PY
 grep -E "E AndroidRuntime|W System.err" smoke/logcat.txt | head -20
 echo "Smoke test passed"
