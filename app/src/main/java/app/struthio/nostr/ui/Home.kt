@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -165,13 +166,14 @@ fun NoteList(
     filter: ((Event) -> Boolean)? = null,
     /** Pictures and videos in a grid rather than notes in a list. */
     gallery: Boolean = false,
+    state: LazyListState? = null,
     header: (@Composable () -> Unit)? = null,
 ) {
     val all by feed.notes.collectAsState()
     val notes = remember(all, filter) { if (filter == null) all else all.filter(filter) }
     val tiles = remember(notes, gallery) { if (gallery) notes.flatMap { e -> galleryMedia(e).map { e to it } }.chunked(3) else emptyList() }
     val loading by feed.loading.collectAsState()
-    val list = rememberLazyListState()
+    val list = state ?: rememberLazyListState()
     val nearEnd by remember {
         derivedStateOf {
             val info = list.layoutInfo

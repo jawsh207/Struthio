@@ -1,6 +1,14 @@
 package app.struthio.nostr.ui
 
 import android.net.Uri
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -136,8 +144,28 @@ fun ProfileScreen(pubkey: String) {
     var tab by rememberSaveable(pubkey) { mutableStateOf(ProfileTab.POSTS) }
     val lightning = lightningLabel(profile?.lud16, profile?.lud06)
 
+    val listState = rememberLazyListState()
+    // Once the banner has scrolled up under the bar, the bar turns solid so text doesn't run beneath it.
+    val barHeight = with(LocalDensity.current) { (WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp).toPx() }
+    val bannerHeight = with(LocalDensity.current) {
+        (WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + LocalConfiguration.current.screenWidthDp.dp / 3).toPx()
+    }
+    val solid by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > bannerHeight - barHeight }
+    }
+    val barColor by animateColorAsState(if (solid) MaterialTheme.colorScheme.background else Color.Transparent, label = "bar")
+    // Light status bar icons over the banner's shade, the theme's own once the bar is solid.
+    val view = LocalView.current
+    val darkTheme = isSystemInDarkTheme()
+    DisposableEffect(solid, darkTheme) {
+        val window = (view.context as? android.app.Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.isAppearanceLightStatusBars = solid && !darkTheme
+        onDispose { controller?.isAppearanceLightStatusBars = !darkTheme }
+    }
+
     Box(Modifier.fillMaxSize()) {
-        NoteList(feed, Modifier.fillMaxSize(), empty = tab.empty, filter = tab::shows, gallery = tab == ProfileTab.GALLERY, header = {
+        NoteList(feed, Modifier.fillMaxSize(), state = listState, empty = tab.empty, filter = tab::shows, gallery = tab == ProfileTab.GALLERY, header = {
             Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProfileBanner(pubkey, profile?.banner)
                 Column {
@@ -215,13 +243,13 @@ fun ProfileScreen(pubkey: String) {
         })
         // Back and the menu float over the banner, which runs up behind them.
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(horizontal = 8.dp),
+            Modifier.fillMaxWidth().background(barColor).statusBarsPadding().height(64.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OverBannerButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back") { nav.pop() }
+            OverBannerButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back", solid) { nav.pop() }
             Spacer(Modifier.weight(1f))
             Box {
-                OverBannerButton(Icons.Rounded.MoreVert, "More") { menu = true }
+                OverBannerButton(Icons.Rounded.MoreVert, "More", solid) { menu = true }
             DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem(text = { Text("Copy npub") }, onClick = {
                         menu = false
@@ -519,9 +547,12 @@ private fun BannerArea(banner: String?, modifier: Modifier) {
 }
 
 @Composable
-private fun OverBannerButton(icon: ImageVector, description: String, onClick: () -> Unit) {
+private fun OverBannerButton(icon: ImageVector, description: String, solid: Boolean, onClick: () -> Unit) {
+    // A dark disc keeps it visible on any banner; on the solid bar it's a plain button.
+    val container by animateColorAsState(if (solid) Color.Transparent else Color.Black.copy(alpha = 0.35f), label = "button")
+    val content by animateColorAsState(if (solid) MaterialTheme.colorScheme.onSurface else Color.White, label = "icon")
     FilledIconButton(
         onClick,
-        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = 0.35f), contentColor = Color.White),
+        colors = IconButtonDefaults.filledIconButtonColors(containerColor = container, contentColor = content),
     ) { Icon(icon, description) }
 }
