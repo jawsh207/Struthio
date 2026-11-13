@@ -40,7 +40,7 @@ def tlv(t, v):
 async def scan(host, kind):
     try:
         async with websockets.connect(f"wss://{host}", open_timeout=8, max_size=2**23) as ws:
-            await ws.send(json.dumps(["REQ", "k", {"kinds": [kind], "limit": 40}]))
+            await ws.send(json.dumps(["REQ", "k", {"kinds": [kind], "limit": 200 if kind == 0 else 40}]))
             found = []
             while True:
                 msg = json.loads(await asyncio.wait_for(ws.recv(), 10))
@@ -61,6 +61,12 @@ def usable(e, kind):
         return any(t and t[0] == "title" for t in tags) and len(e["content"]) > 400
     if kind == 10011:
         return any(t and t[0] == "i" and len(t) >= 3 for t in tags)
+    if kind == 0:
+        try:
+            p = json.loads(e["content"])
+        except Exception:
+            return False
+        return str(p.get("banner", "")).startswith("https://") and "@" in str(p.get("lud16", "")) and bool(p.get("website"))
     return True
 
 
@@ -71,7 +77,7 @@ async def main():
         if not events:
             continue
         e = events[0]
-        if kind == 10011:
+        if kind in (0, 10011):
             print(bech32("npub", bytes.fromhex(e["pubkey"])))
         elif 30000 <= kind < 40000:
             d = next((t[1] for t in e["tags"] if t and t[0] == "d" and len(t) > 1), "")
