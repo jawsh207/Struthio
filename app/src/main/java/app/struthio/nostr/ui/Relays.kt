@@ -1,5 +1,6 @@
 package app.struthio.nostr.ui
 
+import app.struthio.nostr.core.parseContent
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -281,7 +282,7 @@ fun RelayInfoScreen(url: String) {
                         }
                     }
                 }
-                info?.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                info?.description?.let { Text(linkedText(remember(it) { parseContent(it) }, emptyMap()), style = MaterialTheme.typography.bodyMedium) }
             }
             if (uses.isNotEmpty()) {
                 Section("You use it for") { uses.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) } }

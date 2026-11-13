@@ -72,6 +72,10 @@ import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Media
 import app.struthio.nostr.core.Nip19
 import app.struthio.nostr.core.Part
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.ui.text.AnnotatedString
 import app.struthio.nostr.core.Invoice
 import app.struthio.nostr.core.Poll
 import app.struthio.nostr.core.emojiMap
@@ -258,38 +262,7 @@ private fun NoteContent(event: Event, detail: Boolean, inQuote: Boolean) {
             parts.filterIsInstance<Part.Lightning>().map { it.invoice },
         )
     }
-    val primary = MaterialTheme.colorScheme.primary
-    val linkStyle = TextLinkStyles(SpanStyle(color = primary, fontWeight = FontWeight.Medium))
-    val text = buildAnnotatedString {
-        for (part in body.parts) {
-            when (part) {
-                is Part.Text -> appendEmoji(part.text, body.emoji)
-                is Part.Lightning -> Unit
-                is Part.Tag -> withLink(
-                    LinkAnnotation.Clickable("tag", linkStyle) { nav.push(Screen.Hashtag(part.tag)) },
-                ) { append("#" + part.tag) }
-                is Part.Link -> withLink(
-                    LinkAnnotation.Clickable("url", linkStyle) {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(part.url))) }
-                    },
-                ) { append(part.url.removePrefix("https://").removePrefix("http://").let { if (it.length > 40) it.take(38) + "…" else it }) }
-                is Part.Mention -> {
-                    val entity = part.entity
-                    if (entity is Entity.Profile) {
-                        withLink(LinkAnnotation.Clickable("user", linkStyle) { nav.push(Screen.Profile(entity.pubkey)) }) {
-                            append("@" + core.displayName(entity.pubkey))
-                        }
-                    } else {
-                        append(part.raw.take(24) + "…")
-                    }
-                }
-            }
-        }
-    }
-    val mentions = remember(event.id) {
-        body.parts.filterIsInstance<Part.Mention>().mapNotNull { (it.entity as? Entity.Profile)?.pubkey }
-    }
-    LaunchedEffect(mentions) { mentions.forEach(core::wantProfile) }
+    val text = linkedText(body.parts, body.emoji)
     val titled = event.kind == Kind.PICTURE || event.kind in Kind.VIDEOS
     // Some posts repeat their title as the start of their text; once is enough.
     if (titled) titleOf(event)?.takeUnless { event.content.trimStart().startsWith(it) }?.let {
@@ -557,3 +530,50 @@ fun ZapSheet(event: Event?, recipient: String, onDismiss: () -> Unit) {
 }
 
 fun Modifier.tap(onClick: () -> Unit) = clickable(onClick = onClick)
+
+/**
+ * Text with working links, as notes and profile bios show it: web addresses open in the browser,
+ * hashtags and mentioned people open in Struthio, and so do linked notes when they aren't quoted.
+ */
+@Composable
+fun linkedText(parts: List<Part>, emoji: Map<String, String>): AnnotatedString {
+    val core = LocalCore.current
+    val nav = LocalNav.current
+    val context = LocalContext.current
+    val linkStyle = TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium))
+    val mentions = remember(parts) { parts.filterIsInstance<Part.Mention>().mapNotNull { (it.entity as? Entity.Profile)?.pubkey } }
+    LaunchedEffect(mentions) { mentions.forEach(core::wantProfile) }
+    return buildAnnotatedString {
+        for (part in parts) {
+            when (part) {
+                is Part.Text -> appendEmoji(part.text, emoji)
+                is Part.Lightning -> Unit
+                is Part.Tag -> withLink(
+                    LinkAnnotation.Clickable("tag", linkStyle) { nav.push(Screen.Hashtag(part.tag)) },
+                ) { append("#" + part.tag) }
+                is Part.Link -> withLink(
+                    LinkAnnotation.Clickable("url", linkStyle) {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(part.url))) }
+                    },
+                ) { append(part.url.removePrefix("https://").removePrefix("http://").let { if (it.length > 40) it.take(38) + "…" else it }) }
+                is Part.Mention -> when (val entity = part.entity) {
+                    is Entity.Profile -> withLink(LinkAnnotation.Clickable("user", linkStyle) { nav.push(Screen.Profile(entity.pubkey)) }) {
+                        append("@" + core.displayName(entity.pubkey))
+                    }
+                    is Entity.Note -> withLink(LinkAnnotation.Clickable("note", linkStyle) {
+                        nav.push(Screen.Thread(entity.id, entity.relays, entity.author))
+                    }) { append("note") }
+                    is Entity.Address -> withLink(LinkAnnotation.Clickable("note", linkStyle) {
+                        core.scope.launch {
+                            val found = core.fetchAddress(entity.kind, entity.author, entity.identifier, entity.relays)
+                            withContext(Dispatchers.Main) {
+                                if (found != null) nav.push(Screen.Thread(found.id)) else nav.say("Couldn't find that post")
+                            }
+                        }
+                    }) { append("post") }
+                    else -> append(part.raw.take(24) + "…")
+                }
+            }
+        }
+    }
+}

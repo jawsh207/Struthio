@@ -1,5 +1,6 @@
 package app.struthio.nostr.ui
 
+import app.struthio.nostr.core.parseContent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.text.format.DateFormat
@@ -312,7 +313,10 @@ private fun Bubble(dm: Dm, mine: Boolean, group: Boolean, onSave: (FileMessage) 
                 file == null -> {
                     val invoices = remember(dm.content) { invoicesIn(dm.content) }
                     val text = remember(dm.content) { replaceInvoices(dm.content) { "" }.trim() }
-                    if (text.isNotEmpty()) Text(text, color = if (mine) colors.onPrimaryContainer else colors.onSurface)
+                    if (text.isNotEmpty()) {
+                        // Links, hashtags and mentions work here as they do in notes.
+                        Text(linkedText(remember(text) { parseContent(text) }, emptyMap()), color = if (mine) colors.onPrimaryContainer else colors.onSurface)
+                    }
                     invoices.forEach { InvoiceCard(it) }
                 }
                 file.type.startsWith("image/") -> EncryptedImage(file)

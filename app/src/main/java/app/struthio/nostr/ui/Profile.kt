@@ -103,6 +103,7 @@ import app.struthio.nostr.core.Entity
 import app.struthio.nostr.core.Filter
 import app.struthio.nostr.core.Kind
 import app.struthio.nostr.core.Nip19
+import app.struthio.nostr.core.parseContent
 import app.struthio.nostr.core.invoicesIn
 import app.struthio.nostr.core.isNip05Address
 import app.struthio.nostr.core.replaceInvoices
@@ -180,7 +181,10 @@ fun ProfileScreen(pubkey: String) {
                 statuses.forEach { StatusLine(it) }
                 profile?.about?.takeIf { it.isNotBlank() }?.let { about ->
                     val text = replaceInvoices(about) { "" }.trim()
-                    if (text.isNotEmpty()) EmojiText(text, profile.emoji, style = MaterialTheme.typography.bodyMedium)
+                    if (text.isNotEmpty()) {
+                        val linked = linkedText(remember(text) { parseContent(text) }, profile.emoji)
+                        Text(linked, style = MaterialTheme.typography.bodyMedium, inlineContent = emojiImages(profile.emoji))
+                    }
                     invoicesIn(about).forEach { InvoiceCard(it) }
                 }
                 profile?.website?.let { site ->
@@ -227,6 +231,8 @@ fun ProfileScreen(pubkey: String) {
                         FilledTonalIconButton({
                             nav.push(Screen.Chat(roomKey(setOf(pubkey, core.me ?: ""))))
                         }) { Icon(Icons.Outlined.ChatBubbleOutline, "Message") }
+                        // Zaps need somewhere to send them.
+                        if (lightning != null) FilledTonalIconButton({ zapping = true }) { Icon(Icons.Rounded.Bolt, "Zap") }
                     }
                 }
                 PrimaryScrollableTabRow(
