@@ -71,6 +71,12 @@ sleep 12
 adb exec-out screencap -p > smoke/04-profile.png
 say_screen() { adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o 'text="[^"]*"\|content-desc="[^"]*"' | grep -v '=""' | head -40 | sed "s/^/$1: /" || true; }
 say_screen profile
+# Your own status opens its dialog from the profile. Only looked at, then cancelled.
+tap_text "Set a status"
+sleep 2
+say_screen status
+tap_text "Cancel"
+sleep 1
 for t in Replies Boosts Gallery; do
   tap_text "$t"
   sleep 5
