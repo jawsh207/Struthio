@@ -1,6 +1,13 @@
 package app.struthio.nostr.ui
 
 import android.net.Uri
+import androidx.compose.material.icons.rounded.AddReaction
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -44,7 +51,6 @@ import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.AssistChip
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.MusicNote
 import app.struthio.nostr.core.Identity
@@ -79,12 +85,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -140,7 +143,9 @@ fun ProfileScreen(pubkey: String) {
     var showQr by remember { mutableStateOf(false) }
     val followingList by produceState<List<String>?>(null, pubkey, follows) { value = core.followingOf(pubkey) }
     val followerCount by produceState<Long?>(null, pubkey) { value = core.followerCount(pubkey) }
-    val statuses by produceState(emptyList<Status>(), pubkey) { value = core.statusesOf(pubkey) }
+    var statuses by remember(pubkey) { mutableStateOf(emptyList<Status>()) }
+    LaunchedEffect(pubkey) { statuses = core.statusesOf(pubkey) }
+    var editingStatus by remember { mutableStateOf(false) }
     val identities by produceState(emptyList<Identity>(), pubkey) { value = core.identitiesOf(pubkey) }
     var tab by rememberSaveable(pubkey) { mutableStateOf(ProfileTab.POSTS) }
     val lightning = lightningLabel(profile?.lud16, profile?.lud06)
@@ -178,7 +183,18 @@ fun ProfileScreen(pubkey: String) {
                         }
                         profile?.nip05?.let { Text(it.removePrefix("_@"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                statuses.forEach { StatusLine(it) }
+                if (isMe) {
+                    // Your own status is set right here: tap it, or the prompt when there's none.
+                    val general = statuses.firstOrNull { !it.music }
+                    if (general != null) {
+                        StatusLine(general, onClick = { editingStatus = true })
+                    } else {
+                        InfoLine(Icons.Rounded.AddReaction, "Set a status", "Set a status") { editingStatus = true }
+                    }
+                    statuses.filter { it.music }.forEach { StatusLine(it) }
+                } else {
+                    statuses.forEach { StatusLine(it) }
+                }
                 profile?.about?.takeIf { it.isNotBlank() }?.let { about ->
                     val text = replaceInvoices(about) { "" }.trim()
                     if (text.isNotEmpty()) {
@@ -272,6 +288,24 @@ fun ProfileScreen(pubkey: String) {
                             scope.act(nav) { core.setMuted(pubkey, !isMuted) }
                         })
                     }
+                }
+            }
+        }
+    }
+    if (editingStatus) {
+        StatusDialog(
+            current = statuses.firstOrNull { !it.music }?.text.orEmpty(),
+            onDismiss = { editingStatus = false },
+        ) { text, hours ->
+            editingStatus = false
+            scope.launch {
+                try {
+                    core.setStatus(text, hours)
+                    val others = statuses.filter { it.music }
+                    statuses = (if (text.isBlank()) emptyList() else listOf(Status(text.trim(), false, null))) + others
+                    nav.say(if (text.isBlank()) "Status cleared" else "Status set")
+                } catch (e: Exception) {
+                    nav.say(e.message ?: "Couldn't set your status")
                 }
             }
         }
@@ -418,14 +452,16 @@ fun PersonRow(core: Core, pubkey: String, shape: Shape, onClick: () -> Unit) {
 
 /** NIP-38: a status under someone's name; a music one gets a note. Tapping opens its link. */
 @Composable
-private fun StatusLine(status: Status) {
+private fun StatusLine(status: Status, onClick: (() -> Unit)? = null) {
     val context = LocalContext.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.then(
-            status.link?.let { link ->
-                Modifier.clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) } }
-            } ?: Modifier,
+            when {
+                onClick != null -> Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = "Change status", onClick = onClick)
+                status.link != null -> Modifier.clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.link))) } }
+                else -> Modifier
+            },
         ),
     ) {
         Icon(
@@ -561,4 +597,43 @@ private fun OverBannerButton(icon: ImageVector, description: String, solid: Bool
         onClick,
         colors = IconButtonDefaults.filledIconButtonColors(containerColor = container, contentColor = content),
     ) { Icon(icon, description) }
+}
+
+/** NIP-38: set, change or clear your status, and when it should end by itself. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StatusDialog(current: String, onDismiss: () -> Unit, onSave: (text: String, hours: Int?) -> Unit) {
+    var text by remember { mutableStateOf(current) }
+    var hours by remember { mutableStateOf<Int?>(null) }
+    val choices = listOf(null to "Don't clear", 1 to "1 hour", 4 to "4 hours", 24 to "Today", 168 to "This week")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Status") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    text,
+                    { text = it.take(140) },
+                    placeholder = { Text("What are you up to?") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Clear after", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    choices.forEach { (h, label) ->
+                        FilterChip(selected = hours == h, onClick = { hours = h }, label = { Text(label) })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton({ onSave(text, hours) }, enabled = text.isNotBlank() && (text.trim() != current || hours != null)) { Text("Set") }
+        },
+        dismissButton = {
+            Row {
+                if (current.isNotEmpty()) TextButton({ onSave("", null) }) { Text("Clear") }
+                TextButton(onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
