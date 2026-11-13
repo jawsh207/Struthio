@@ -47,7 +47,19 @@ for kind in 0 20 21 22 30023 10011; do
   adb exec-out screencap -p > smoke/k$n-kind$kind.png
   if [ "$kind" = 0 ]; then
     sleep 6
+    adb exec-out screencap -p > smoke/profile-top.png
     adb shell input swipe $((W/2)) $((H*70/100)) $((W/2)) $((H*45/100)) 600; sleep 2
+    adb exec-out screencap -p > smoke/profile-scrolled.png
+    python3 - <<'PY'
+import base64,io
+from PIL import Image
+for name in ('profile-top','profile-scrolled'):
+    img=Image.open(f'smoke/{name}.png').convert('RGB')
+    img=img.resize((540,int(img.height*540/img.width)))
+    out=io.BytesIO(); img.save(out,'JPEG',quality=82)
+    data=base64.b64encode(out.getvalue()).decode()
+    for i in range(0,len(data),3000): print(f'{name.upper()}:'+data[i:i+3000])
+PY
     adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o 'text="[^"]*"\|content-desc="[^"]*"' | grep -v '=""' | cut -c1-80 | head -30 | sed 's/^/profile: /'
   fi
   if [ "$kind" = 30023 ]; then
