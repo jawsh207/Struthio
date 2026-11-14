@@ -57,6 +57,8 @@ adb exec-out screencap -p > smoke/02-following.png
 # Read down the feed and wait: posts that arrive above should show the "new posts" pill.
 W=$(adb shell wm size | tail -1 | sed 's/.*: //' | tr -d '\r' | cut -dx -f1)
 H=$(adb shell wm size | tail -1 | sed 's/.*: //' | tr -d '\r' | cut -dx -f2)
+# Global has posts arriving every few seconds, so the pill has something to count.
+tap_text "Global"; sleep 12
 for i in 1 2 3; do adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*30/100)) 300; sleep 1; done
 pill=""
 for i in $(seq 1 18); do
@@ -68,6 +70,7 @@ if [ -n "$pill" ]; then
   tap_text "$(echo "$pill" | sed 's/text="//; s/"$//')"; sleep 3
   adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -q 'new post' && echo "pill after tap: still showing" || echo "pill after tap: gone, back at the top"
 fi
+tap_text "Following"; sleep 2
 tap_text "More" | tee smoke/menu.txt
 sleep 1
 adb exec-out screencap -p > smoke/02b-menu.png
