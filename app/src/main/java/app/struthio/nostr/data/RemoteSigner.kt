@@ -160,7 +160,7 @@ class RemoteSigner(
         const val PERMISSIONS = "sign_event,nip44_encrypt,nip44_decrypt,get_public_key,switch_relays"
 
         /** Shown by the signer when it lists connected apps. */
-        val METADATA: String = JSONObject().put("name", "Zino").put("url", "https://github.com/jawsh207/Struthio").toString()
+        val METADATA: String = JSONObject().put("name", "Zino").put("url", "https://github.com/jawsh207/Zino").toString()
 
         fun newClientKey(): ByteArray = ByteArray(32).also { random.nextBytes(it) }
 
@@ -193,7 +193,7 @@ class RemoteSigner(
                 append("&secret=").append(enc(secret))
                 append("&perms=").append(enc(PERMISSIONS))
                 append("&name=").append(enc("Zino"))
-                append("&url=").append(enc("https://github.com/jawsh207/Struthio"))
+                append("&url=").append(enc("https://github.com/jawsh207/Zino"))
             }
         }
 
