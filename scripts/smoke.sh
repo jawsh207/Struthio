@@ -55,6 +55,8 @@ tap_text "Sign in"
 sleep 26
 adb exec-out screencap -p > smoke/02-following.png
 # Read down the feed and wait: posts that arrive above should show the "new posts" pill.
+W=$(adb shell wm size | tail -1 | sed 's/.*: //' | tr -d '\r' | cut -dx -f1)
+H=$(adb shell wm size | tail -1 | sed 's/.*: //' | tr -d '\r' | cut -dx -f2)
 for i in 1 2 3; do adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*30/100)) 300; sleep 1; done
 pill=""
 for i in $(seq 1 18); do
