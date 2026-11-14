@@ -54,6 +54,18 @@ sleep 1
 tap_text "Sign in"
 sleep 26
 adb exec-out screencap -p > smoke/02-following.png
+# Read down the feed and wait: posts that arrive above should show the "new posts" pill.
+for i in 1 2 3; do adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*30/100)) 300; sleep 1; done
+pill=""
+for i in $(seq 1 18); do
+  pill=$(adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o 'text="[0-9+]* new posts\?"' | head -1)
+  [ -n "$pill" ] && break; sleep 5
+done
+echo "new posts pill: ${pill:-none in 90s}"
+if [ -n "$pill" ]; then
+  tap_text "$(echo "$pill" | sed 's/text="//; s/"$//')"; sleep 3
+  adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -q 'new post' && echo "pill after tap: still showing" || echo "pill after tap: gone, back at the top"
+fi
 tap_text "More" | tee smoke/menu.txt
 sleep 1
 adb exec-out screencap -p > smoke/02b-menu.png
