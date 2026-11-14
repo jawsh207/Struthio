@@ -1,30 +1,42 @@
 package app.struthio.nostr.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,7 +48,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -45,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.struthio.nostr.core.Event
@@ -167,6 +179,8 @@ fun NoteList(
     /** Pictures and videos in a grid rather than notes in a list. */
     gallery: Boolean = false,
     state: LazyListState? = null,
+    /** How far down the new-posts pill sits, below anything floating over the list. */
+    pillTop: Dp = 12.dp,
     header: (@Composable () -> Unit)? = null,
 ) {
     val all by feed.notes.collectAsState()
@@ -190,6 +204,15 @@ fun NoteList(
             list.animateScrollToItem(0)
         }
     }
+    // New posts above where you're reading: everything newer than the note that was on top when you
+    // were last at the top. Struthio keeps your place; the pill says how many are waiting.
+    val atTop by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 40 } }
+    var anchor by remember(feed, filter) { mutableStateOf<String?>(null) }
+    LaunchedEffect(atTop, notes.firstOrNull()?.id) {
+        if (atTop || anchor == null || notes.none { it.id == anchor }) anchor = notes.firstOrNull()?.id
+    }
+    val newAbove = if (gallery || atTop) 0 else notes.indexOfFirst { it.id == anchor }.coerceAtLeast(0)
+    val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(loading) { if (!loading) refreshing = false }
     PullToRefreshBox(
@@ -230,6 +253,30 @@ fun NoteList(
                         )
                     }
                 }
+            }
+        }
+        AnimatedVisibility(
+            visible = newAbove > 0,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = pillTop),
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+        ) {
+            // Remembered so the count doesn't drop to zero mid-animation as it leaves.
+            var shown by remember { mutableIntStateOf(newAbove) }
+            if (newAbove > 0) shown = newAbove
+            Button(
+                onClick = {
+                    scope.launch {
+                        if (list.firstVisibleItemIndex > 12) list.scrollToItem(12)
+                        list.animateScrollToItem(0)
+                    }
+                },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
+            ) {
+                Icon(Icons.Rounded.ArrowUpward, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (shown == 1) "1 new post" else "${if (shown > 99) "99+" else shown} new posts")
             }
         }
     }

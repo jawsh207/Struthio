@@ -171,7 +171,7 @@ fun ProfileScreen(pubkey: String) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        NoteList(feed, Modifier.fillMaxSize(), state = listState, empty = tab.empty, filter = tab::shows, gallery = tab == ProfileTab.GALLERY, header = {
+        NoteList(feed, Modifier.fillMaxSize(), state = listState, pillTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp, empty = tab.empty, filter = tab::shows, gallery = tab == ProfileTab.GALLERY, header = {
             Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProfileBanner(pubkey, profile?.banner)
                 Column {
