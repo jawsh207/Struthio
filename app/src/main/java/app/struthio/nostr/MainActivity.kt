@@ -10,7 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import app.struthio.nostr.data.SignerBridge
 import app.struthio.nostr.data.SignerResult
 import app.struthio.nostr.ui.App
-import app.struthio.nostr.ui.StruthioTheme
+import app.struthio.nostr.ui.ZinoTheme
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 

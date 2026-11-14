@@ -15,7 +15,7 @@ import android.net.Uri
 import android.util.Log
 import app.struthio.nostr.MainActivity
 import app.struthio.nostr.R
-import app.struthio.nostr.StruthioApp
+import app.struthio.nostr.ZinoApp
 import app.struthio.nostr.core.Nip19
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
