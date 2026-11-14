@@ -65,7 +65,7 @@ class RelayPool(
     private val stats: RelayStats? = null,
     private val signer: () -> Signer?,
 ) {
-    /** The last 30 days of Struthio's use of [url]. */
+    /** The last 30 days of Zino's use of [url]. */
     fun usage(url: String): RelayStats.Summary? = stats?.summary(url)
 
     private val relays = ConcurrentHashMap<String, Relay>()
@@ -81,7 +81,7 @@ class RelayPool(
     /** Nothing connects until something is on screen, so a background wake-up opens no sockets. */
     @Volatile private var foreground = false
 
-    /** Whether sockets may be open now, with Struthio in front. */
+    /** Whether sockets may be open now, with Zino in front. */
     val inForeground: Boolean get() = foreground
 
     /** Android cuts a backgrounded app's network within seconds, so nothing is retried until it's back. */
@@ -145,7 +145,7 @@ class RelayPool(
 
     /**
      * How long a relay takes to answer a request, in ms, on a connection of its own: the shared
-     * one may be busy with Struthio's own requests, queued behind them, or resting after failures,
+     * one may be busy with Zino's own requests, queued behind them, or resting after failures,
      * none of which says how the relay itself is doing. Any answer counts, a refusal too. Null when
      * it can't be reached or doesn't answer within [timeoutMs].
      */

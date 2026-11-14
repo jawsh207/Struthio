@@ -294,7 +294,7 @@ fun SettingsScreen() {
                 color = MaterialTheme.colorScheme.error,
             ) { vanishing = true }
             Text(
-                listOfNotNull("Struthio", version).joinToString(" "),
+                listOfNotNull("Zino", version).joinToString(" "),
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.labelMedium,
@@ -689,7 +689,7 @@ fun Onboarding(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Spacer(Modifier.height(32.dp))
-        Text("Struthio", style = MaterialTheme.typography.displayMedium)
+        Text("Zino", style = MaterialTheme.typography.displayMedium)
         Text("Fast, light Nostr.", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(16.dp))
         Section("New to Nostr") {
@@ -771,7 +771,7 @@ private fun RemoteSignInSheet(onDismiss: () -> Unit) {
         ) {
             Text("Use a remote signer", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Your key stays in a signer like nsec.app or a bunker of your own. Struthio asks it to sign over Nostr relays, encrypted.",
+                "Your key stays in a signer like nsec.app or a bunker of your own. Zino asks it to sign over Nostr relays, encrypted.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -793,7 +793,7 @@ private fun RemoteSignInSheet(onDismiss: () -> Unit) {
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
             Text("Or connect from your signer", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Scan this with your signer, or open it in a signer on this phone. Struthio is waiting for it.",
+                "Scan this with your signer, or open it in a signer on this phone. Zino is waiting for it.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -838,7 +838,7 @@ private fun VanishDialog(onDismiss: () -> Unit) {
                 )
                 Text(
                     "It can't be undone. Not every relay supports it, and anyone who saved a copy keeps it. " +
-                        "Struthio signs out afterwards.",
+                        "Zino signs out afterwards.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(reason, { reason = it }, label = { Text("Reason (optional)") }, modifier = Modifier.fillMaxWidth())

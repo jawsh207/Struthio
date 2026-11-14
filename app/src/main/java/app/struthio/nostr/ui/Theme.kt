@@ -50,7 +50,7 @@ fun Typography.withFontFamily(family: FontFamily): Typography = copy(
  * highlights: the FAB, selection, links, own message bubbles.
  */
 @Composable
-fun StruthioTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun ZinoTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val context = LocalContext.current
     // Dynamic colour needs Android 12; older versions get the standard Material scheme.
     val wallpaper = when {

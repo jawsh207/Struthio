@@ -69,7 +69,7 @@ object SignerBridge {
     private val mutex = Mutex()
 
     suspend fun request(intent: android.content.Intent): SignerResult = mutex.withLock {
-        val launcher = launch ?: error("open Struthio to approve this")
+        val launcher = launch ?: error("open Zino to approve this")
         val deferred = CompletableDeferred<SignerResult>()
         withContext(Dispatchers.Main) { launcher(intent, deferred) }
         deferred.await()
@@ -148,7 +148,7 @@ class ExternalSigner(
             return context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()
         }
 
-        /** The permissions Struthio asks to have remembered, so routine work stays silent. */
+        /** The permissions Zino asks to have remembered, so routine work stays silent. */
         const val PERMISSIONS = """[{"type":"sign_event","kind":22242},{"type":"sign_event","kind":7},{"type":"sign_event","kind":1},{"type":"nip44_encrypt"},{"type":"nip44_decrypt"}]"""
     }
 }

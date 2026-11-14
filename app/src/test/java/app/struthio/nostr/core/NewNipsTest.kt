@@ -211,7 +211,7 @@ class NewNipsTest {
         assertTrue(uri.startsWith("nostrconnect://$client?"))
         assertTrue("relay=wss%3A%2F%2Frelay.nsec.app" in uri)
         assertTrue("secret=s3cret" in uri)
-        assertTrue("name=Struthio" in uri)
+        assertTrue("name=Zino" in uri)
         assertTrue("perms=sign_event%2Cnip44_encrypt%2Cnip44_decrypt" in uri)
     }
 

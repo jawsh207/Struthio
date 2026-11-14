@@ -118,7 +118,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
 fun Context.copy(text: String) {
-    (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Struthio", text))
+    (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Zino", text))
 }
 
 @Composable

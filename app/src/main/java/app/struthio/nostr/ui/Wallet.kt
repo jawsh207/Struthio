@@ -163,7 +163,7 @@ private fun ConnectWallet() {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Connect a Lightning wallet", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Paste a Nostr Wallet Connect link from your wallet. Your funds stay there; Struthio only asks it to pay or create invoices.",
+                "Paste a Nostr Wallet Connect link from your wallet. Your funds stay there; Zino only asks it to pay or create invoices.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             OutlinedTextField(

@@ -1,6 +1,6 @@
 name: New kinds check
 
-# Run by hand. Read-only: finds public picture, video, article and linked-account events and shows how Struthio displays them. Nothing is published.
+# Run by hand. Read-only: finds public picture, video, article and linked-account events and shows how Zino displays them. Nothing is published.
 on:
   workflow_dispatch:
 

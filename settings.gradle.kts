@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Struthio"
+rootProject.name = "Zino"
 include(":app")

@@ -592,7 +592,7 @@ class Core(private val context: Context) {
     }
 
     /**
-     * NIP-46 the other way round: the signer scanned or opened the `nostrconnect://` link Struthio
+     * NIP-46 the other way round: the signer scanned or opened the `nostrconnect://` link Zino
      * showed. Waits for its answer, which must carry the link's secret.
      */
     suspend fun signInNostrConnect(clientKey: ByteArray, secret: String, relays: List<String>, timeoutMs: Long) =
@@ -807,7 +807,7 @@ class Core(private val context: Context) {
         if (!latestFromRelays(me, Kind.BOOKMARKS)) throw UserError("Could not reach your relays. Try again.")
         val current = store.latest(me, Kind.BOOKMARKS)
         if (current != null && current.content.contains("?iv=")) {
-            throw UserError("Your bookmarks use an old format that Struthio will not overwrite.")
+            throw UserError("Your bookmarks use an old format that Zino will not overwrite.")
         }
         val items = ArrayList<List<String>>()
         if (current != null && current.content.isNotBlank()) {
@@ -974,7 +974,7 @@ class Core(private val context: Context) {
     suspend fun setIdentities(list: List<Identity>) {
         val pubkey = author()
         latestFromRelays(pubkey, Kind.IDENTITIES)
-        // Any tags this version of Struthio doesn't know are kept.
+        // Any tags this version of Zino doesn't know are kept.
         val others = store.latest(pubkey, Kind.IDENTITIES)?.tags.orEmpty().filter { it.firstOrNull() != "i" }
         publish(Draft(pubkey, nowSeconds(), Kind.IDENTITIES, others + list.map { it.tag() }, ""))
     }
@@ -1769,7 +1769,7 @@ class Core(private val context: Context) {
             null -> "signed out"
             else -> "key on this phone"
         }
-        appendLine("Struthio $version, Android ${android.os.Build.VERSION.SDK_INT}, ${android.os.Build.MODEL}, $key")
+        appendLine("Zino $version, Android ${android.os.Build.VERSION.SDK_INT}, ${android.os.Build.MODEL}, $key")
         appendLine("General read: ${readRelays().joinToString(" ")}")
         appendLine("General write: ${writeRelays().joinToString(" ")}")
         appendLine("Messaging: ${dmRelays.value.joinToString(" ")}")
@@ -1795,7 +1795,7 @@ class Core(private val context: Context) {
     companion object {
         const val KEY_SECRET = "nsec"
 
-        /** The throwaway key Struthio uses to talk to a NIP-46 remote signer. */
+        /** The throwaway key Zino uses to talk to a NIP-46 remote signer. */
         const val KEY_BUNKER = "nip46_client"
         const val KEY_NWC = "nwc"
         private const val CACHE_EVENTS = 20_000

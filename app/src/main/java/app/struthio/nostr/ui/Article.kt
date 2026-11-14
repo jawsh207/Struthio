@@ -165,7 +165,7 @@ private fun MarkdownBlock(block: Markdown.Block) {
     }
 }
 
-/** Styled text with working links: web pages open in the browser, nostr: links inside Struthio. */
+/** Styled text with working links: web pages open in the browser, nostr: links inside Zino. */
 @Composable
 private fun spans(list: List<Markdown.Span>): AnnotatedString {
     val core = LocalCore.current

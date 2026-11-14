@@ -52,7 +52,7 @@ object Notifier {
                     .build(),
             )
         } catch (e: RuntimeException) {
-            Log.w("Struthio", "could not schedule checks", e)
+            Log.w("Zino", "could not schedule checks", e)
         }
     }
 
@@ -118,7 +118,7 @@ class CheckService : JobService() {
     private var work: Job? = null
 
     override fun onStartJob(params: JobParameters): Boolean {
-        val core = (application as StruthioApp).core
+        val core = (application as ZinoApp).core
         work = core.scope.launch {
             try {
                 withTimeout(CHECK_LIMIT_MS) { core.backgroundCheck() }

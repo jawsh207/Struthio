@@ -15,7 +15,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
-    private val core get() = (application as StruthioApp).core
+    private val core get() = (application as ZinoApp).core
     private val deepLink = MutableStateFlow<String?>(null)
     private var signerReply: CompletableDeferred<SignerResult>? = null
 
@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
         }
         deepLink.value = intent?.dataString
         setContent {
-            StruthioTheme {
+            ZinoTheme {
                 App(core, deepLink)
             }
         }

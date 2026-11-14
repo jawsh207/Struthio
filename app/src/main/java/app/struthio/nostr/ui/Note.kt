@@ -533,7 +533,7 @@ fun Modifier.tap(onClick: () -> Unit) = clickable(onClick = onClick)
 
 /**
  * Text with working links, as notes and profile bios show it: web addresses open in the browser,
- * hashtags and mentioned people open in Struthio, and so do linked notes when they aren't quoted.
+ * hashtags and mentioned people open in Zino, and so do linked notes when they aren't quoted.
  */
 @Composable
 fun linkedText(parts: List<Part>, emoji: Map<String, String>): AnnotatedString {

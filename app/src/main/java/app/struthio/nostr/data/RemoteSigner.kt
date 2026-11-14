@@ -21,7 +21,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * NIP-46: the key lives in a remote signer ("bunker"), reached over relays. Struthio keeps only a
+ * NIP-46: the key lives in a remote signer ("bunker"), reached over relays. Zino keeps only a
  * throwaway client key for talking to it; every message is NIP-44 encrypted, kind 24133.
  */
 class RemoteSigner(
@@ -118,9 +118,9 @@ class RemoteSigner(
         }
 
         suspend fun request(method: String, params: List<String>, timeoutMs: Long = REQUEST_MS): String {
-            // In the background Struthio has no connections, so the signer can't be reached; say so now
+            // In the background Zino has no connections, so the signer can't be reached; say so now
             // rather than after a long wait.
-            if (!pool.inForeground) throw UserError("Open Struthio to use your remote signer.")
+            if (!pool.inForeground) throw UserError("Open Zino to use your remote signer.")
             val id = Hex.encode(ByteArray(8).also { random.nextBytes(it) })
             val body = JSONObject().put("id", id).put("method", method).put("params", JSONArray(params))
             val draft = Draft(client.pubkey, nowSeconds(), Kind.NOSTR_CONNECT, listOf(listOf("p", remote)), Nip44.encrypt(body.toString(), conversation))
@@ -156,11 +156,11 @@ class RemoteSigner(
         const val REQUEST_MS = 120_000L
         private val random = SecureRandom()
 
-        /** What Struthio asks the signer to allow, so it needn't ask about each kind separately. */
+        /** What Zino asks the signer to allow, so it needn't ask about each kind separately. */
         const val PERMISSIONS = "sign_event,nip44_encrypt,nip44_decrypt,get_public_key,switch_relays"
 
         /** Shown by the signer when it lists connected apps. */
-        val METADATA: String = JSONObject().put("name", "Struthio").put("url", "https://github.com/jawsh207/Struthio").toString()
+        val METADATA: String = JSONObject().put("name", "Zino").put("url", "https://github.com/jawsh207/Struthio").toString()
 
         fun newClientKey(): ByteArray = ByteArray(32).also { random.nextBytes(it) }
 
@@ -184,7 +184,7 @@ class RemoteSigner(
             return Bunker(remote, relays, params.firstOrNull { it.first == "secret" }?.second?.takeIf { it.isNotBlank() })
         }
 
-        /** The `nostrconnect://` link Struthio shows for a signer to scan or open. */
+        /** The `nostrconnect://` link Zino shows for a signer to scan or open. */
         fun nostrConnectUri(clientPubkey: String, relays: List<String>, secret: String): String {
             fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
             return buildString {
@@ -192,7 +192,7 @@ class RemoteSigner(
                 append(relays.joinToString("&") { "relay=" + enc(it) })
                 append("&secret=").append(enc(secret))
                 append("&perms=").append(enc(PERMISSIONS))
-                append("&name=").append(enc("Struthio"))
+                append("&name=").append(enc("Zino"))
                 append("&url=").append(enc("https://github.com/jawsh207/Struthio"))
             }
         }

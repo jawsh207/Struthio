@@ -1,6 +1,8 @@
-# Struthio
+# Zino
 
 A small, fast Nostr client for Android, built with Kotlin and Jetpack Compose in Material 3 Expressive. Colors come from the system.
+
+The name comes from *struzzino*, Italian for a baby ostrich, cut down to its last four letters. Say it ZEE-no.
 
 ## What it does
 
@@ -16,7 +18,7 @@ A small, fast Nostr client for Android, built with Kotlin and Jetpack Compose in
 
 ## Protocol
 
-Struthio implements the current form of each specification and writes no deprecated formats.
+Zino implements the current form of each specification and writes no deprecated formats.
 
 | NIP | Use |
 |---|---|
@@ -87,8 +89,8 @@ CI needs four repository secrets (Settings › Secrets and variables › Actions
 | `STRUTHIO_KEY_ALIAS` | `struthio` |
 | `STRUTHIO_KEY_PASSWORD` | key password, the same as the keystore password |
 
-Keep the keystore and its password backed up privately. Android only accepts updates signed with the same key, and anyone holding it can sign APKs that install over Struthio.
+Keep the keystore and its password backed up privately. Android only accepts updates signed with the same key, and anyone holding it can sign APKs that install over Zino.
 
 ## License
 
-Struthio is licensed under the [Apache License 2.0](LICENSE). Bundled third-party work and its licenses are listed in [NOTICE](NOTICE).
+Zino is licensed under the [Apache License 2.0](LICENSE). Bundled third-party work and its licenses are listed in [NOTICE](NOTICE).

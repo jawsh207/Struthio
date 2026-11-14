@@ -160,7 +160,7 @@ jobs:
         run: |
           mkdir -p out
           for abi in arm64-v8a armeabi-v7a x86_64; do
-            cp "app/build/outputs/apk/release/app-$abi-release.apk" "out/Struthio-${STRUTHIO_VERSION_NAME}-$abi.apk"
+            cp "app/build/outputs/apk/release/app-$abi-release.apk" "out/Zino-${STRUTHIO_VERSION_NAME}-$abi.apk"
           done
           {
             echo "### APK sizes"
@@ -170,7 +170,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: struthio-apks
+          name: zino-apks
           path: out/*.apk
 
       # Only after a successful, signed build: tag this commit.
@@ -180,7 +180,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$RELEASE_TAG" -m "Struthio $RELEASE_TAG" "$GITHUB_SHA"
+          git tag -a "$RELEASE_TAG" -m "Zino $RELEASE_TAG" "$GITHUB_SHA"
           git push origin "refs/tags/$RELEASE_TAG"
 
       - name: Write release notes
@@ -204,7 +204,7 @@ jobs:
               echo
             elif [ "$(git cat-file -t "$TAG")" = "tag" ]; then
               MSG=$(git tag -l --format='%(contents)' "$TAG" | sed '/^-----BEGIN PGP/,$d')
-              if [ -n "$MSG" ] && [ "$MSG" != "Struthio $TAG" ]; then echo "$MSG"; echo; fi
+              if [ -n "$MSG" ] && [ "$MSG" != "Zino $TAG" ] && [ "$MSG" != "Struthio $TAG" ]; then echo "$MSG"; echo; fi
             fi
             # Change log: every commit since the previous release (release bookkeeping left out).
             if [ ! -f "$NOTES" ]; then
@@ -234,8 +234,8 @@ jobs:
             gh release upload "$TAG" out/*.apk --clobber
             BODY=$(gh release view "$TAG" --json body -q .body)
             if [ -z "${BODY//[[:space:]]/}" ]; then
-              gh release edit "$TAG" --title "Struthio $TAG" --notes-file release-notes.md
+              gh release edit "$TAG" --title "Zino $TAG" --notes-file release-notes.md
             fi
           else
-            gh release create "$TAG" out/*.apk --title "Struthio $TAG" --notes-file release-notes.md --verify-tag
+            gh release create "$TAG" out/*.apk --title "Zino $TAG" --notes-file release-notes.md --verify-tag
           fi

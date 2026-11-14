@@ -25,7 +25,7 @@ fun threadRef(event: Event): ThreadRef {
         val parent = replyTag ?: rootTag!!
         return ThreadRef(rootTag?.get(1) ?: parent[1], parent[1], rootTag?.getOrNull(4), parent.getOrNull(4))
     }
-    // Older events on the network use position; Struthio only reads this form, never writes it.
+    // Older events on the network use position; Zino only reads this form, never writes it.
     if (eTags.any { it.getOrNull(3) == "mention" }) return ThreadRef(null, null)
     return ThreadRef(eTags.first()[1], eTags.last()[1])
 }

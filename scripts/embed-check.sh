@@ -54,7 +54,7 @@ adb exec-out screencap -p > smoke/e6-keyboard-closed.png
 adb logcat -d > smoke/logcat.txt
 PID=$(adb shell pidof $PKG)
 echo "--- app log lines"
-adb logcat -d --pid=$PID | grep -E "StruthioEmbed|chromium" | grep -v VideoCapture | cut -c1-300 | tail -40
+adb logcat -d --pid=$PID | grep -E "ZinoEmbed|chromium" | grep -v VideoCapture | cut -c1-300 | tail -40
 python3 - <<'PY'
 import base64,glob,io
 from PIL import Image

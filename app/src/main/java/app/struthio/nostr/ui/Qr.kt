@@ -223,7 +223,7 @@ fun QrScanner(onResult: (String) -> Unit, onClose: () -> Unit) {
                 failed -> Text("The camera could not be opened.", color = Color.White)
                 granted -> CameraPreview(onResult) { failed = true }
                 else -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Struthio needs the camera to scan codes.", color = Color.White)
+                    Text("Zino needs the camera to scan codes.", color = Color.White)
                     Button({ ask.launch(Manifest.permission.CAMERA) }) { Text("Allow camera") }
                 }
             }

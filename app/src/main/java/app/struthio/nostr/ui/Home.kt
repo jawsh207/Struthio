@@ -205,7 +205,7 @@ fun NoteList(
         }
     }
     // New posts above where you're reading: everything newer than the note that was on top when you
-    // were last at the top. Struthio keeps your place; the pill says how many are waiting.
+    // were last at the top. Zino keeps your place; the pill says how many are waiting.
     val atTop by remember { derivedStateOf { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 40 } }
     var anchor by remember(feed, filter) { mutableStateOf<String?>(null) }
     LaunchedEffect(atTop, notes.firstOrNull()?.id) {

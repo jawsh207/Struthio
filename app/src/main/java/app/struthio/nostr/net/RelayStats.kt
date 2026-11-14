@@ -4,8 +4,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * What Struthio has seen of each relay over the last [DAYS] days, kept per day: data down and up,
- * and how many connection attempts reached it. Only Struthio's own use is counted, so a relay that
+ * What Zino has seen of each relay over the last [DAYS] days, kept per day: data down and up,
+ * and how many connection attempts reached it. Only Zino's own use is counted, so a relay that
  * was down while the app was closed isn't known to have been.
  */
 class RelayStats(load: () -> String?, private val save: (String) -> Unit) {

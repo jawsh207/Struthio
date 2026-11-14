@@ -21,14 +21,14 @@
     </queries>
 
     <application
-        android:name=".StruthioApp"
+        android:name=".ZinoApp"
         android:allowBackup="false"
         android:hasFragileUserData="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="Struthio"
+        android:label="Zino"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Struthio">
+        android:theme="@style/Theme.Zino">
         <activity
             android:name=".MainActivity"
             android:exported="true"

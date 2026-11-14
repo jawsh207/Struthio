@@ -85,7 +85,7 @@ class Nav(private val scope: CoroutineScope, private val snackbar: SnackbarHostS
     val stack = mutableStateListOf<Screen>()
 
     /**
-     * Opens [screen]. If it's already open further back, Struthio goes back to it instead of stacking
+     * Opens [screen]. If it's already open further back, Zino goes back to it instead of stacking
      * another copy: going round in circles (a profile, its followers, the same profile; a chat, its
      * person, the same chat) would otherwise leave a back gesture for every lap.
      */

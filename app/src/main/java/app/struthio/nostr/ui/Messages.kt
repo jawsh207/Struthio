@@ -234,7 +234,7 @@ fun ChatScreen(room: String) {
             }
         }
     }
-    LaunchedEffect(saving) { if (saving != null) saveFile.launch("struthio-file") }
+    LaunchedEffect(saving) { if (saving != null) saveFile.launch("zino-file") }
 
     Column(Modifier.fillMaxSize().imePadding()) {
         BackBar(others.joinToString(", ") { core.displayName(it) })

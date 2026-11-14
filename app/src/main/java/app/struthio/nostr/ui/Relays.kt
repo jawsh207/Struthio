@@ -294,7 +294,7 @@ fun RelayInfoScreen(url: String) {
                     Fact("Uploaded", formatBytes(usage.up))
                     usage.uptime?.let { Fact("Uptime", "$it% · reached ${usage.reached} of ${usage.tries} tries") }
                     Text(
-                        "Measured from Struthio's own connections, so only while you use it.",
+                        "Measured from Zino's own connections, so only while you use it.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

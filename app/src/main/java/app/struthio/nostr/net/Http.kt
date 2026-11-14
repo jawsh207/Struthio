@@ -19,7 +19,7 @@ object Http {
             connectTimeout = 8_000
             readTimeout = 12_000
             instanceFollowRedirects = followRedirects
-            setRequestProperty("User-Agent", "Struthio")
+            setRequestProperty("User-Agent", "Zino")
         }
     }
 

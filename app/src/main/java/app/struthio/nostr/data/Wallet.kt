@@ -141,7 +141,7 @@ class Wallet(private val core: Core) {
             if (pending == null) return@subscribe
             val opened = runCatching { JSONObject(Nip44.decrypt(e.content, c.conversation)) }
             opened.onSuccess { pending.complete(it) }.onFailure {
-                // Old wallets answer with NIP-04, whose content carries "?iv=". Struthio doesn't read it.
+                // Old wallets answer with NIP-04, whose content carries "?iv=". Zino doesn't read it.
                 val format = if ("?iv=" in e.content) "the old NIP-04 encryption" else "an unreadable format"
                 AppLog.add("wallet answered from $url in $format")
             }

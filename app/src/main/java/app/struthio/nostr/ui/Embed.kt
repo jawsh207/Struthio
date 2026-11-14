@@ -116,7 +116,7 @@ fun EmbedCard(url: String, embed: VideoEmbed) {
     }
 }
 
-private const val ORIGIN = "https://app.struthio.nostr/"
+private const val ORIGIN = "https://app.zino.nostr/"
 
 /** Words a player page shows when it won't play, worth a line in the logs. */
 private val REFUSALS = listOf("Error", "error", "Sign in", "unavailable", "not available", "blocked")
@@ -204,7 +204,7 @@ private fun EmbedPlayer(embed: VideoEmbed) {
                 }
                 // The player page itself, with the app named as referrer, as YouTube asks of apps.
                 // Players refuse to start without one ("Error 153").
-                // Starts at once, so one tap on Struthio's play button is enough.
+                // Starts at once, so one tap on Zino's play button is enough.
                 val start = embed.player + (if ('?' in embed.player) "&" else "?") + "autoplay=1"
                 loadUrl(start, mapOf("Referer" to ORIGIN))
             }

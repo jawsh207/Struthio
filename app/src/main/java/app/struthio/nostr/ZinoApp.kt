@@ -5,7 +5,7 @@ import app.struthio.nostr.data.Core
 import app.struthio.nostr.net.AppLog
 import java.io.File
 
-class StruthioApp : Application() {
+class ZinoApp : Application() {
     val core: Core by lazy { Core(this) }
 
     override fun onCreate() {
